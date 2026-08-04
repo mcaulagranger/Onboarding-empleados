@@ -1,14 +1,8 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
-  LayoutDashboard, Users, FileText, LogOut, ClipboardList, X,
+  LayoutDashboard, Users, FileText, LogOut, ClipboardList, X, Cake, ShieldCheck,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-
-const adminNav = [
-  { to: '/admin', label: 'Panel', icon: LayoutDashboard, end: true },
-  { to: '/admin/empleados', label: 'Empleados', icon: Users },
-  { to: '/admin/plantillas', label: 'Plantillas', icon: FileText },
-]
 
 const employeeNav = [
   { to: '/empleado', label: 'Inicio', icon: LayoutDashboard, end: true },
@@ -18,8 +12,22 @@ const employeeNav = [
 export default function Sidebar({ onClose }) {
   const { profile, signOut } = useAuth()
   const navigate = useNavigate()
-  const isAdmin = profile?.role === 'admin'
-  const nav = isAdmin ? adminNav : employeeNav
+  const esSuperAdmin = profile?.role === 'admin'
+  const esOperativo = profile?.role === 'admin' || profile?.role === 'rrhh'
+
+  // "Equipo RRHH" solo la ve el Super Admin — es donde se
+  // crean y dan de baja las cuentas de RRHH.
+  const adminNav = [
+    { to: '/admin', label: 'Panel', icon: LayoutDashboard, end: true },
+    { to: '/admin/empleados', label: 'Empleados', icon: Users },
+    { to: '/admin/plantillas', label: 'Plantillas', icon: FileText },
+    { to: '/admin/cumpleanos', label: 'Cumpleaños', icon: Cake },
+    ...(esSuperAdmin
+      ? [{ to: '/admin/equipo-rrhh', label: 'Equipo RRHH', icon: ShieldCheck }]
+      : []),
+  ]
+
+  const nav = esOperativo ? adminNav : employeeNav
 
   async function handleSignOut() {
     await signOut()
@@ -58,7 +66,7 @@ export default function Sidebar({ onClose }) {
               {profile?.full_name ?? '—'}
             </p>
             <p className="text-slate-400 text-xs truncate">
-              {isAdmin ? 'Recursos Humanos' : profile?.position ?? 'Ingresante'}
+              {esSuperAdmin ? 'Super Admin' : esOperativo ? 'Recursos Humanos' : profile?.position ?? 'Ingresante'}
             </p>
           </div>
         </div>

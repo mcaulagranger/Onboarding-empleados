@@ -1,18 +1,24 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { ToastContainer } from 'react-toastify'
+import { ToastContainer, toast } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
 import { useAuth } from './contexts/AuthContext'
 import Layout from './components/Layout'
 import Login from './pages/Login'
-import AdminDashboard from './pages/employee/Dashboard'
+import AdminDashboard from './pages/admin/Dashboard'
 import Employees from './pages/admin/Employees'
 import EmployeeDetail from './pages/admin/EmployeeDetail'
 import Templates from './pages/admin/Templates'
+import Birthdays from './pages/admin/Birthdays'
+import RRHHTeam from './pages/admin/RRHHTeam'
 import EmployeeDashboard from './pages/employee/Dashboard'
 import MyDocuments from './pages/employee/MyDocuments'
 
-function ProtectedRoute({ children, role }) {
-  const { user, profile, loading } = useAuth()
+// `roles`: lista de roles permitidos en esta rama de rutas.
+// admin y rrhh comparten todo el panel operativo; el panel
+// exclusivo del Super Admin (RRHHTeam) se gatea aparte, adentro
+// de la propia página, no acá.
+function ProtectedRoute({ children, roles }) {
+  const { user, profile, loading, signOut } = useAuth()
 
   if (loading) {
     return (
@@ -23,8 +29,16 @@ function ProtectedRoute({ children, role }) {
   }
 
   if (!user) return <Navigate to="/login" replace />
-  if (role && profile?.role !== role) {
-    return <Navigate to={profile?.role === 'admin' ? '/admin' : '/empleado'} replace />
+
+  // Cuenta desactivada por el Super Admin: fuera, sin excepción.
+  if (profile && profile.is_active === false) {
+    signOut()
+    toast.error('Esta cuenta fue desactivada. Contactá al administrador.')
+    return <Navigate to="/login" replace />
+  }
+
+  if (roles && !roles.includes(profile?.role)) {
+    return <Navigate to={profile?.role === 'employee' ? '/empleado' : '/admin'} replace />
   }
   return children
 }
@@ -33,7 +47,7 @@ function RootRedirect() {
   const { user, profile, loading } = useAuth()
   if (loading) return null
   if (!user) return <Navigate to="/login" replace />
-  return <Navigate to={profile?.role === 'admin' ? '/admin' : '/empleado'} replace />
+  return <Navigate to={profile?.role === 'employee' ? '/empleado' : '/admin'} replace />
 }
 
 export default function App() {
@@ -50,11 +64,11 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
 
-        {/* Admin */}
+        {/* Panel operativo: admin y rrhh */}
         <Route
           path="/admin"
           element={
-            <ProtectedRoute role="admin">
+            <ProtectedRoute roles={['admin', 'rrhh']}>
               <Layout />
             </ProtectedRoute>
           }
@@ -63,13 +77,15 @@ export default function App() {
           <Route path="empleados" element={<Employees />} />
           <Route path="empleados/:id" element={<EmployeeDetail />} />
           <Route path="plantillas" element={<Templates />} />
+          <Route path="cumpleanos" element={<Birthdays />} />
+          <Route path="equipo-rrhh" element={<RRHHTeam />} />
         </Route>
 
         {/* Empleado */}
         <Route
           path="/empleado"
           element={
-            <ProtectedRoute role="employee">
+            <ProtectedRoute roles={['employee']}>
               <Layout />
             </ProtectedRoute>
           }

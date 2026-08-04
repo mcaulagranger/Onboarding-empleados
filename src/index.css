@@ -1,0 +1,120 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-ivori text-fg font-sans antialiased;
+  }
+  h1, h2, h3 {
+    @apply font-display;
+    font-variation-settings: 'SOFT' 20, 'WONK' 1;
+  }
+  /* Los encabezados de tabla quedan en la sans utilitaria */
+  th {
+    font-family: Archivo, system-ui, sans-serif;
+  }
+}
+
+@layer components {
+  /* ── Botones ──────────────────────────────────────── */
+  .btn-primary {
+    @apply bg-brand-500 hover:bg-brand-600 text-ink font-semibold px-4 py-2 rounded-lg
+           transition-all duration-150 flex items-center gap-2
+           hover:shadow-md hover:shadow-brand-500/25 active:scale-[0.97]
+           disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/40;
+  }
+  .btn-secondary {
+    @apply bg-natural hover:bg-slate-100 text-slate-700 border border-slate-300 font-medium
+           px-4 py-2 rounded-lg transition-all duration-150 flex items-center gap-2
+           active:scale-[0.97]
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400;
+  }
+  .btn-danger {
+    @apply bg-durazno hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-lg
+           transition-all duration-150 flex items-center gap-2 active:scale-[0.97];
+  }
+
+  /* ── Superficies ──────────────────────────────────── */
+  .card {
+    @apply bg-natural rounded-xl border border-slate-200 shadow-soft transition-all duration-200;
+  }
+
+  /* ── Formularios ──────────────────────────────────── */
+  .input {
+    @apply w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm text-fg
+           focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-brand-400
+           placeholder:text-slate-400 transition-shadow;
+  }
+  .label {
+    @apply block text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1.5;
+  }
+
+  /* ── Wordmark GRANGER. ────────────────────────────── */
+  .wordmark {
+    @apply font-sans font-black italic uppercase text-white leading-none;
+    letter-spacing: -0.03em;
+  }
+  .wordmark span {
+    @apply text-brand-500;
+  }
+
+  /* ── Panel de bienvenida (hero) ───────────────────── */
+  /* Dos resplandores radiales (naranja + violeta Cookies) sobre
+     el negro gris de marca, más la textura de líneas encima. */
+  .hero-panel {
+    @apply relative overflow-hidden rounded-2xl sm:rounded-3xl bg-ink
+           ring-1 ring-white/[0.06] shadow-xl shadow-ink/30;
+    background-image:
+      radial-gradient(ellipse 70% 90% at 100% -10%, rgba(241, 138, 0, 0.32), transparent 60%),
+      radial-gradient(ellipse 55% 70% at -5% 115%, rgba(64, 47, 101, 0.55), transparent 65%);
+  }
+
+  /* ── Encabezado de sección con acento de marca ────── */
+  /* Reemplaza al resplandor de fondo: una franja de color a la
+     izquierda del título, visible pero contenida. */
+  .section-heading {
+    @apply relative pl-3 font-semibold text-fg;
+  }
+  .section-heading::before {
+    content: '';
+    @apply absolute left-0 top-0.5 bottom-0.5 w-1 rounded-full bg-brand-500;
+  }
+}
+
+/* ── Textura topográfica de marca ─────────────────────
+   Patrón de líneas orgánicas tomado del key visual.    */
+.granger-texture {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Cg fill='none' stroke='%23f18a00' stroke-width='7' stroke-linecap='round'%3E%3Cpath d='M0 25C40 5 60 45 100 25S160 5 200 25'/%3E%3Cpath d='M0 50C40 70 60 30 100 50S160 70 200 50'/%3E%3Cpath d='M0 75C40 55 60 95 100 75S160 55 200 75'/%3E%3Cpath d='M0 100C40 120 60 80 100 100S160 120 200 100'/%3E%3Cpath d='M0 125C40 105 60 145 100 125S160 105 200 125'/%3E%3Cpath d='M0 150C40 170 60 130 100 150S160 170 200 150'/%3E%3Cpath d='M0 175C40 155 60 195 100 175S160 155 200 175'/%3E%3Cpath d='M0 200C40 220 60 180 100 200S160 220 200 200'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 260px 260px;
+}
+
+/* Spinner dentro del botón naranja: hereda el color de texto */
+.btn-primary .animate-spin {
+  border-color: rgba(34, 32, 28, 0.3);
+  border-top-color: #22201c;
+}
+
+/* Respeta la preferencia de movimiento reducido */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Animaciones sutiles reutilizables ─────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes popIn {
+  0%   { opacity: 0; transform: scale(0.94); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.animate-pop-in {
+  animation: popIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}

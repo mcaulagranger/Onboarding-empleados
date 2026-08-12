@@ -7,6 +7,24 @@ import SignaturePad from './SignaturePad'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker
 
+// Tamaño mínimo de zona táctil (px), aunque el campo real en el PDF
+// sea más chico — muy común en checkboxes y en grillas de puntos
+// como el croquis de domicilio, donde el cuadrado real mide ~15px
+// en pantalla y es difícil tocarlo con el dedo sin este margen.
+// Se expande de forma simétrica: el punto visual no se corre de su
+// posición real, solo crece el área invisible alrededor.
+const TAP_MIN = 30
+function zonaTactil(top, left, width, height) {
+  const w = Math.max(width, TAP_MIN)
+  const h = Math.max(height, TAP_MIN)
+  return {
+    top: top - (h - height) / 2,
+    left: left - (w - width) / 2,
+    width: w,
+    height: h,
+  }
+}
+
 /**
  * Completa un PDF con campos reales directamente en la pantalla, sin
  * que el usuario tenga que descargarlo. Lee la estructura del
@@ -297,30 +315,50 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo }) {
                   }
 
                   if (campo.tipo === 'checkbox') {
+                    // Zona táctil mínima de 26px aunque el campo real sea
+                    // más chico, expandida de forma simétrica para no
+                    // correr el punto visual de su posición real.
+                    const tap = zonaTactil(cssTop, cssLeft, cssWidth, cssHeight)
+                    const marcado = !!valores[campo.name]
                     return (
-                      <input
+                      <button
                         key={key}
-                        type="checkbox"
-                        checked={!!valores[campo.name]}
-                        onChange={(e) => setValor(campo.name, e.target.checked)}
-                        style={{ top: cssTop, left: cssLeft, width: cssWidth, height: cssHeight }}
-                        className="absolute accent-brand-500 cursor-pointer"
-                      />
+                        type="button"
+                        onClick={() => setValor(campo.name, !marcado)}
+                        style={tap}
+                        className="absolute flex items-center justify-center"
+                      >
+                        <span
+                          className={`flex items-center justify-center border-2 rounded-sm transition-colors ${
+                            marcado ? 'border-brand-600 bg-brand-50' : 'border-slate-400 hover:border-brand-400'
+                          }`}
+                          style={{ width: cssWidth, height: cssHeight }}
+                        >
+                          {marcado && <X className="w-[85%] h-[85%] text-brand-700" strokeWidth={3} />}
+                        </span>
+                      </button>
                     )
                   }
 
                   if (campo.tipo === 'radio') {
+                    const tap = zonaTactil(cssTop, cssLeft, cssWidth, cssHeight)
+                    const seleccionado = valores[campo.name] === campo.opcion
                     return (
                       <button
                         key={key}
                         type="button"
                         onClick={() => setValor(campo.name, campo.opcion)}
-                        style={{ top: cssTop, left: cssLeft, width: cssWidth, height: cssHeight }}
-                        className="absolute rounded-full border-2 border-slate-400 hover:border-brand-500 transition-colors flex items-center justify-center"
+                        style={tap}
+                        className="absolute flex items-center justify-center"
                       >
-                        {valores[campo.name] === campo.opcion && (
-                          <span className="w-1/2 h-1/2 rounded-full bg-brand-500" />
-                        )}
+                        <span
+                          className={`rounded-full border-2 flex items-center justify-center transition-colors ${
+                            seleccionado ? 'border-brand-600' : 'border-slate-400 hover:border-brand-400'
+                          }`}
+                          style={{ width: cssWidth, height: cssHeight }}
+                        >
+                          {seleccionado && <span className="w-1/2 h-1/2 rounded-full bg-brand-500" />}
+                        </span>
                       </button>
                     )
                   }

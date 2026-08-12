@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, lazy, Suspense } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { toast } from 'react-toastify'
@@ -6,17 +6,26 @@ import StatusBadge from '../../components/StatusBadge'
 import Modal from '../../components/Modal'
 import {
   FileText, Download, Upload, CheckCircle2, Eye,
-  Clock, AlertCircle
+  Clock, AlertCircle, PenLine,
 } from 'lucide-react'
+
+// pdfjs-dist y pdf-lib son pesadas: se cargan solo cuando alguien
+// abre "Completar ahora", no en el resto de la app (admin, RRHH,
+// e incluso el resto de esta misma pantalla).
+const PdfFormFiller = lazy(() => import('../../components/PdfFormFiller'))
 
 export default function MyDocuments() {
   const { user } = useAuth()
   const [docs, setDocs] = useState([])
   const [loading, setLoading] = useState(true)
-  const [activeDoc, setActiveDoc] = useState(null) // documento en modal de subida
+  const [activeDoc, setActiveDoc] = useState(null) // modal de subida manual (opción alternativa)
   const [file, setFile] = useState(null)
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef()
+
+  // Completar directamente en la app (sin descargar)
+  const [fillerDoc, setFillerDoc] = useState(null)   // employee_document en edición
+  const [fillerUrl, setFillerUrl] = useState(null)   // URL firmada de la plantilla
 
   async function loadDocs() {
     const { data } = await supabase
@@ -59,6 +68,58 @@ export default function MyDocuments() {
     }
   }
 
+  // ── Completar en la app: abrir el editor con una URL firmada ──
+  async function abrirCompletarAhora(doc) {
+    try {
+      const { data, error } = await supabase.storage
+        .from('document-templates')
+        .createSignedUrl(doc.document_templates?.file_path, 300)
+      if (error) throw error
+      setFillerUrl(data.signedUrl)
+      setFillerDoc(doc)
+    } catch {
+      toast.error('No se pudo abrir el documento para completar')
+    }
+  }
+
+  // ── Al guardar desde el editor: subir el PDF ya completado ──
+  async function handleGuardarDesdeFiller(bytesFinal) {
+    try {
+      const blob = new Blob([bytesFinal], { type: 'application/pdf' })
+      const nombreLimpio = (fillerDoc.document_templates?.name ?? 'documento')
+        .replace(/\s+/g, '_')
+      const filePath = `${user.id}/${fillerDoc.id}_${Date.now()}_${nombreLimpio}.pdf`
+
+      if (fillerDoc.completed_file_path) {
+        await supabase.storage.from('completed-documents').remove([fillerDoc.completed_file_path])
+      }
+
+      const { error: storageError } = await supabase.storage
+        .from('completed-documents')
+        .upload(filePath, blob, { contentType: 'application/pdf', upsert: false })
+      if (storageError) throw storageError
+
+      const { error: dbError } = await supabase
+        .from('employee_documents')
+        .update({
+          status: 'completed',
+          completed_file_path: filePath,
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', fillerDoc.id)
+      if (dbError) throw dbError
+
+      toast.success(`"${fillerDoc.document_templates?.name}" completado y enviado`)
+      setFillerDoc(null)
+      setFillerUrl(null)
+      loadDocs()
+    } catch (err) {
+      toast.error(err.message ?? 'No se pudo guardar el documento completado')
+    }
+  }
+
+  // ── Alternativa: descargar, completar afuera y subir manualmente ──
   async function handleUploadCompleted(e) {
     e.preventDefault()
     if (!file || !activeDoc) return
@@ -67,7 +128,6 @@ export default function MyDocuments() {
       const cleanName = file.name.replace(/\s+/g, '_')
       const filePath = `${user.id}/${activeDoc.id}_${Date.now()}_${cleanName}`
 
-      // Si ya había un archivo anterior, eliminarlo
       if (activeDoc.completed_file_path) {
         await supabase.storage
           .from('completed-documents')
@@ -114,24 +174,20 @@ export default function MyDocuments() {
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <h1 className="text-2xl font-bold text-ink">Mis documentos</h1>
+        <h1 className="text-2xl font-bold text-fg">Mis documentos</h1>
         <p className="text-slate-500 text-sm mt-1">
-          Descargá cada documento, completalo y subilo de vuelta.
+          Completalos directamente acá, tocando cada campo — no hace falta descargar nada.
         </p>
       </div>
 
       {/* Instrucciones */}
       <div className="flex gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800">
         <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-blue-500" />
-        <div>
-          <p className="font-medium mb-1">¿Cómo completar los documentos?</p>
-          <ol className="list-decimal list-inside space-y-0.5 text-xs">
-            <li>Descargá el PDF haciendo clic en "Descargar"</li>
-            <li>Completá el formulario (a mano o en la computadora)</li>
-            <li>Escanealo o guardalo como PDF</li>
-            <li>Subilo con el botón "Subir completado"</li>
-          </ol>
-        </div>
+        <p>
+          Tocá <strong>"Completar ahora"</strong> para abrir el documento y llenarlo ahí mismo,
+          incluida la firma a mano. Si preferís descargarlo y completarlo aparte, esa opción
+          sigue disponible más abajo de cada documento.
+        </p>
       </div>
 
       {docs.length === 0 ? (
@@ -156,6 +212,7 @@ export default function MyDocuments() {
                   doc={doc}
                   onDownload={handleDownloadTemplate}
                   onPreview={handlePreview}
+                  onCompletarAhora={() => abrirCompletarAhora(doc)}
                   onUpload={() => { setActiveDoc(doc); setFile(null) }}
                 />
               ))}
@@ -175,6 +232,7 @@ export default function MyDocuments() {
                   doc={doc}
                   onDownload={handleDownloadTemplate}
                   onPreview={handlePreview}
+                  onCompletarAhora={() => abrirCompletarAhora(doc)}
                   onUpload={() => { setActiveDoc(doc); setFile(null) }}
                 />
               ))}
@@ -183,7 +241,23 @@ export default function MyDocuments() {
         </>
       )}
 
-      {/* Modal de subida */}
+      {/* Editor en la app: completar + firmar sin descargar */}
+      {fillerDoc && fillerUrl && (
+        <Suspense fallback={
+          <div className="fixed inset-0 z-50 bg-ink/70 flex items-center justify-center">
+            <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        }>
+          <PdfFormFiller
+            fileUrl={fillerUrl}
+            titulo={fillerDoc.document_templates?.name}
+            onSubmit={handleGuardarDesdeFiller}
+            onCancel={() => { setFillerDoc(null); setFillerUrl(null) }}
+          />
+        </Suspense>
+      )}
+
+      {/* Alternativa: subir un archivo completado aparte */}
       {activeDoc && (
         <Modal
           title={`Subir: ${activeDoc.document_templates?.name}`}
@@ -250,12 +324,13 @@ export default function MyDocuments() {
   )
 }
 
-function DocCard({ doc, onDownload, onPreview, onUpload }) {
+function DocCard({ doc, onDownload, onPreview, onCompletarAhora, onUpload }) {
   const isDone = doc.status === 'completed'
+  const [mostrarAlterativa, setMostrarAlterativa] = useState(false)
 
   return (
     <div
-      className={`card p-4 border-l-4 ${
+      className={`card p-4 border-l-4 transition-all duration-200 hover:shadow-md ${
         isDone ? 'border-l-emerald-600' : 'border-l-brand-400'
       }`}
     >
@@ -265,7 +340,7 @@ function DocCard({ doc, onDownload, onPreview, onUpload }) {
             isDone ? 'text-emerald-600' : 'text-amber-600'
           }`} />
           <div className="min-w-0">
-            <p className="font-medium text-ink">{doc.document_templates?.name}</p>
+            <p className="font-medium text-fg">{doc.document_templates?.name}</p>
             {doc.document_templates?.description && (
               <p className="text-xs text-slate-500 mt-0.5">{doc.document_templates.description}</p>
             )}
@@ -282,33 +357,49 @@ function DocCard({ doc, onDownload, onPreview, onUpload }) {
       <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-100">
         <button
           onClick={() => onPreview(doc.document_templates?.file_path)}
-          className="btn-secondary text-xs py-1.5 flex-1 justify-center"
+          className="btn-secondary text-xs py-1.5 justify-center"
         >
           <Eye className="w-3.5 h-3.5" />
           Ver
         </button>
         <button
-          onClick={() => onDownload(
-            doc.document_templates?.file_path,
-            doc.document_templates?.file_name
-          )}
-          className="btn-secondary text-xs py-1.5 flex-1 justify-center"
+          onClick={onCompletarAhora}
+          className="flex-1 text-xs py-1.5 justify-center flex items-center gap-1.5 rounded-lg font-semibold
+                     bg-brand-500 text-fg hover:bg-brand-600 transition-colors"
         >
-          <Download className="w-3.5 h-3.5" />
-          Descargar
-        </button>
-        <button
-          onClick={onUpload}
-          className={`text-xs py-1.5 flex-1 justify-center flex items-center gap-1.5 rounded-lg font-medium transition-colors ${
-            isDone
-              ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              : 'bg-brand-500 text-ink font-semibold hover:bg-brand-600'
-          }`}
-        >
-          <Upload className="w-3.5 h-3.5" />
-          {isDone ? 'Reemplazar' : 'Subir completado'}
+          <PenLine className="w-3.5 h-3.5" />
+          {isDone ? 'Editar y volver a enviar' : 'Completar ahora'}
         </button>
       </div>
+
+      {/* Alternativa manual, discreta */}
+      <div className="mt-2 text-center">
+        <button
+          onClick={() => setMostrarAlterativa((v) => !v)}
+          className="text-[11px] text-slate-400 hover:text-slate-600 underline-offset-2 hover:underline"
+        >
+          Prefiero descargarlo y completarlo aparte
+        </button>
+      </div>
+      {mostrarAlterativa && (
+        <div className="flex items-center gap-2 mt-2">
+          <button
+            onClick={() => onDownload(doc.document_templates?.file_path, doc.document_templates?.file_name)}
+            className="btn-secondary text-xs py-1.5 flex-1 justify-center"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Descargar
+          </button>
+          <button
+            onClick={onUpload}
+            className="text-xs py-1.5 flex-1 justify-center flex items-center gap-1.5 rounded-lg font-medium
+                       bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            {isDone ? 'Reemplazar' : 'Subir completado'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

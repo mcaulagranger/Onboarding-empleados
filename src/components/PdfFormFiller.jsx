@@ -370,51 +370,71 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo }) {
                     // Zona táctil chica a propósito (ver TAP_MIN_CHECKBOX):
                     // los pares SI/NO están muy cerca entre sí, y una zona
                     // más grande haría que se solaparan.
+                    //
+                    // Usa un <input type="checkbox"> NATIVO de verdad (oculto
+                    // visualmente, pero funcional) en vez de un <button>
+                    // armado a mano — así el toque queda garantizado por el
+                    // navegador en cualquier celular, no depende de mi propio
+                    // manejo de clics.
                     const tap = zonaTactil(cssTop, cssLeft, cssWidth, cssHeight, TAP_MIN_CHECKBOX)
                     const marcado = !!valores[campo.name]
                     return (
-                      <button
+                      <label
                         key={key}
-                        type="button"
-                        onClick={() => setValor(campo.name, !marcado)}
                         style={tap}
-                        className="absolute flex items-center justify-center"
+                        className="absolute flex items-center justify-center cursor-pointer"
                       >
+                        <input
+                          type="checkbox"
+                          checked={marcado}
+                          onChange={(e) => setValor(campo.name, e.target.checked)}
+                          className="sr-only"
+                        />
                         <span
-                          className={`flex items-center justify-center border-2 rounded-sm transition-colors ${
-                            marcado ? 'border-brand-600 bg-brand-50' : 'border-slate-400 hover:border-brand-400'
+                          className={`flex items-center justify-center border-2 rounded-sm transition-colors pointer-events-none ${
+                            marcado ? 'border-brand-600 bg-brand-50' : 'border-slate-400'
                           }`}
                           style={{ width: cssWidth, height: cssHeight }}
                         >
                           {marcado && <X className="w-[85%] h-[85%] text-brand-700" strokeWidth={3} />}
                         </span>
-                      </button>
+                      </label>
                     )
                   }
 
                   if (campo.tipo === 'radio') {
                     // Zona táctil chica a propósito (ver TAP_MIN_PUNTO): los
                     // 4 puntos de una misma manzana están muy cerca entre sí.
+                    //
+                    // Mismo cambio que en el checkbox: <input type="radio">
+                    // nativo (oculto) en vez de un <button> armado a mano,
+                    // para que el toque en el celular quede garantizado por
+                    // el navegador.
                     const tap = zonaTactil(cssTop, cssLeft, cssWidth, cssHeight, TAP_MIN_PUNTO)
                     const visual = Math.max(cssWidth, TAP_MIN_PUNTO - 4)
                     const seleccionado = valores[campo.name] === campo.opcion
                     return (
-                      <button
+                      <label
                         key={key}
-                        type="button"
-                        onClick={() => setValor(campo.name, campo.opcion)}
                         style={tap}
-                        className="absolute flex items-center justify-center"
+                        className="absolute flex items-center justify-center cursor-pointer"
                       >
+                        <input
+                          type="radio"
+                          name={campo.name}
+                          checked={seleccionado}
+                          onChange={() => setValor(campo.name, campo.opcion)}
+                          className="sr-only"
+                        />
                         <span
-                          className={`rounded-full border-2 flex items-center justify-center transition-colors ${
-                            seleccionado ? 'border-brand-600' : 'border-slate-400 hover:border-brand-400'
+                          className={`rounded-full border-2 flex items-center justify-center transition-colors pointer-events-none ${
+                            seleccionado ? 'border-brand-600' : 'border-slate-400'
                           }`}
                           style={{ width: visual, height: visual }}
                         >
                           {seleccionado && <span className="w-1/2 h-1/2 rounded-full bg-brand-500" />}
                         </span>
-                      </button>
+                      </label>
                     )
                   }
 

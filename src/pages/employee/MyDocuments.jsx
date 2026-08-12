@@ -14,6 +14,18 @@ import {
 // e incluso el resto de esta misma pantalla).
 const PdfFormFiller = lazy(() => import('../../components/PdfFormFiller'))
 
+// Saca tildes, ñ y cualquier símbolo que no sea seguro en una ruta de
+// Storage. Sin esto, un nombre como "Declaración Jurada..." rompe la
+// subida con un 400 — Supabase Storage no acepta esos caracteres en
+// la ruta del objeto.
+function sanearNombreArchivo(nombre) {
+  return nombre
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '')
+}
+
 export default function MyDocuments() {
   const { user } = useAuth()
   const [docs, setDocs] = useState([])
@@ -86,8 +98,7 @@ export default function MyDocuments() {
   async function handleGuardarDesdeFiller(bytesFinal) {
     try {
       const blob = new Blob([bytesFinal], { type: 'application/pdf' })
-      const nombreLimpio = (fillerDoc.document_templates?.name ?? 'documento')
-        .replace(/\s+/g, '_')
+      const nombreLimpio = sanearNombreArchivo(fillerDoc.document_templates?.name ?? 'documento')
       const filePath = `${user.id}/${fillerDoc.id}_${Date.now()}_${nombreLimpio}.pdf`
 
       if (fillerDoc.completed_file_path) {
@@ -125,7 +136,7 @@ export default function MyDocuments() {
     if (!file || !activeDoc) return
     setUploading(true)
     try {
-      const cleanName = file.name.replace(/\s+/g, '_')
+      const cleanName = sanearNombreArchivo(file.name.replace(/\.pdf$/i, '')) + '.pdf'
       const filePath = `${user.id}/${activeDoc.id}_${Date.now()}_${cleanName}`
 
       if (activeDoc.completed_file_path) {

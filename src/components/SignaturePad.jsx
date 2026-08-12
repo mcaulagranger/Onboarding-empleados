@@ -15,17 +15,31 @@ export default function SignaturePad({ onConfirm, onClose }) {
 
   useEffect(() => {
     const canvas = canvasRef.current
-    const ctx = canvas.getContext('2d')
-    // Lienzo en alta resolución para que el trazo no se vea pixelado
-    const ratio = window.devicePixelRatio || 1
-    const { width, height } = canvas.getBoundingClientRect()
-    canvas.width = width * ratio
-    canvas.height = height * ratio
-    ctx.scale(ratio, ratio)
-    ctx.lineWidth = 2.4
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
-    ctx.strokeStyle = '#1a1a1a'
+
+    function preparar() {
+      const ctx = canvas.getContext('2d')
+      const ratio = window.devicePixelRatio || 1
+      const { width, height } = canvas.getBoundingClientRect()
+
+      // Si el layout todavía no asentó (medida en cero, puede pasar
+      // justo al abrir el modal), se reintenta en el próximo frame en
+      // vez de dejar el lienzo con un buffer de 0x0 — eso haría que
+      // cualquier trazo dibujado no se guarde en ningún lado.
+      if (width === 0 || height === 0) {
+        requestAnimationFrame(preparar)
+        return
+      }
+
+      canvas.width = width * ratio
+      canvas.height = height * ratio
+      ctx.scale(ratio, ratio)
+      ctx.lineWidth = 2.4
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      ctx.strokeStyle = '#1a1a1a'
+    }
+
+    preparar()
   }, [])
 
   function posicionDesdeEvento(e) {

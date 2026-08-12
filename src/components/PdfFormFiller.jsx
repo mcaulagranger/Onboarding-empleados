@@ -173,7 +173,9 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo }) {
   async function handleGuardar() {
     setGuardando(true)
     try {
-      const pdfDoc = await PDFDocument.load(pdfBytes)
+      console.log('[PdfFormFiller] Iniciando guardado. Firmas capturadas:', Object.keys(firmas))
+
+      const pdfDoc = await PDFDocument.load(pdfBytes.slice(0))
       const form = pdfDoc.getForm()
       const pages = pdfDoc.getPages()
 
@@ -190,29 +192,58 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo }) {
         }
       }
 
-      // Firmas: se estampan como imagen sobre el campo correspondiente
+      // Firmas: se estampan como imagen sobre el campo correspondiente.
+      // El campo de firma se quita del formulario ANTES de aplanar, así
+      // flatten() no puede dibujar su (vacío) contenido encima de la
+      // imagen que ya pusimos ahí.
       for (const [nombre, dataUrl] of Object.entries(firmas)) {
         const campo = campos.find((c) => c.name === nombre)
-        if (!campo) continue
-        const pngBytes = await (await fetch(dataUrl)).arrayBuffer()
+        if (!campo) {
+          console.warn('[PdfFormFiller] No se encontró el campo para la firma:', nombre)
+          continue
+        }
+
+        console.log('[PdfFormFiller] Firma', nombre, '— dataURL longitud:', dataUrl?.length)
+
+        const res = await fetch(dataUrl)
+        const pngBytes = await res.arrayBuffer()
+        console.log('[PdfFormFiller] Firma', nombre, '— bytes PNG:', pngBytes.byteLength)
+
+        if (!pngBytes || pngBytes.byteLength < 100) {
+          console.error('[PdfFormFiller] La imagen de firma está vacía o corrupta:', nombre)
+          continue
+        }
+
         const img = await pdfDoc.embedPng(pngBytes)
+        console.log('[PdfFormFiller] Firma', nombre, '— tamaño embebido:', img.width, 'x', img.height)
+
         const page = pages[campo.page]
         const { rect } = campo
         const maxW = rect.width - 6, maxH = rect.height - 6
         const scale = Math.min(maxW / img.width, maxH / img.height, 1)
         const w = img.width * scale, h = img.height * scale
-        page.drawImage(img, {
-          x: rect.x + (rect.width - w) / 2,
-          y: rect.y + (rect.height - h) / 2,
-          width: w,
-          height: h,
-        })
+        const x = rect.x + (rect.width - w) / 2
+        const y = rect.y + (rect.height - h) / 2
+
+        console.log('[PdfFormFiller] Firma', nombre, `— dibujando en página ${campo.page}, x=${x.toFixed(1)} y=${y.toFixed(1)} w=${w.toFixed(1)} h=${h.toFixed(1)}`)
+
+        page.drawImage(img, { x, y, width: w, height: h })
+
+        // Sacar el campo del formulario para que flatten() no lo toque.
+        try {
+          const fieldFirma = form.getFieldMaybe(campo.name)
+          if (fieldFirma) form.removeField(fieldFirma)
+        } catch (e) {
+          console.warn('[PdfFormFiller] No se pudo quitar el campo de firma del formulario:', nombre, e.message)
+        }
       }
 
       form.flatten()
       const bytesFinal = await pdfDoc.save()
+      console.log('[PdfFormFiller] PDF final generado, bytes:', bytesFinal.byteLength)
       await onSubmit(bytesFinal)
     } catch (err) {
+      console.error('[PdfFormFiller] Error al guardar:', err)
       setError(err.message ?? 'No se pudo generar el documento completado')
     } finally {
       setGuardando(false)

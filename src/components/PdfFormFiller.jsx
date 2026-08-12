@@ -2,9 +2,8 @@ import { useEffect, useRef, useState, useMemo } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { PDFDocument } from 'pdf-lib'
-import { Send, PenLine, X, MapPin } from 'lucide-react'
+import { Send, PenLine, X } from 'lucide-react'
 import SignaturePad from './SignaturePad'
-import CroquisModal from './CroquisModal'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker
 
@@ -18,6 +17,11 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker
 // la otra. Por eso usan un tope más chico que el resto.
 const TAP_MIN = 30
 const TAP_MIN_CHECKBOX = 15
+// Los 36 puntos del croquis de domicilio son lo más apretado del
+// documento: dentro de una misma manzana están a solo ~18pt entre
+// sí. Necesitan la zona táctil más chica de toda la app para no
+// solaparse entre ellos.
+const TAP_MIN_PUNTO = 11
 
 function zonaTactil(top, left, width, height, minimo = TAP_MIN) {
   const w = Math.max(width, minimo)
@@ -30,58 +34,6 @@ function zonaTactil(top, left, width, height, minimo = TAP_MIN) {
   }
 }
 
-// El croquis de domicilio tiene 36 puntos (4 esquinas x 9 manzanas)
-// como opciones de un mismo radio group ("punto_casa"). Para mostrar
-// un modal por manzana hace falta reconstruir esas 9 agrupaciones a
-// partir de los 36 rects individuales — se agrupan por cercanía: los
-// 4 puntos de una misma manzana están a ~15pt entre sí, mientras que
-// entre manzanas distintas hay ~50pt o más.
-function agruparEnManzanas(puntos) {
-  if (puntos.length === 0) return []
-
-  function clusterizar(valores, gap) {
-    const unicos = [...new Set(valores)].sort((a, b) => a - b)
-    const grupos = []
-    let actual = [unicos[0]]
-    for (let i = 1; i < unicos.length; i++) {
-      if (unicos[i] - actual[actual.length - 1] > gap) {
-        grupos.push(actual)
-        actual = []
-      }
-      actual.push(unicos[i])
-    }
-    grupos.push(actual)
-    return grupos.map((g) => ({ min: Math.min(...g), max: Math.max(...g) }))
-  }
-
-  const centrosX = puntos.map((p) => p.rect.x + p.rect.width / 2)
-  const centrosY = puntos.map((p) => p.rect.y + p.rect.height / 2)
-  const gruposX = clusterizar(centrosX, 30)
-  const gruposY = clusterizar(centrosY, 30)
-
-  const manzanas = []
-  for (const gy of gruposY) {
-    for (const gx of gruposX) {
-      const delGrupo = puntos.filter((p) => {
-        const cx = p.rect.x + p.rect.width / 2
-        const cy = p.rect.y + p.rect.height / 2
-        return cx >= gx.min - 15 && cx <= gx.max + 15 && cy >= gy.min - 15 && cy <= gy.max + 15
-      })
-      if (delGrupo.length === 0) continue
-      const margen = 4
-      const minX = Math.min(...delGrupo.map((p) => p.rect.x)) - margen
-      const maxX = Math.max(...delGrupo.map((p) => p.rect.x + p.rect.width)) + margen
-      const minY = Math.min(...delGrupo.map((p) => p.rect.y)) - margen
-      const maxY = Math.max(...delGrupo.map((p) => p.rect.y + p.rect.height)) + margen
-      manzanas.push({
-        rect: { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
-        page: delGrupo[0].page,
-        puntos: delGrupo,
-      })
-    }
-  }
-  return manzanas
-}
 
 /**
  * Completa un PDF con campos reales directamente en la pantalla, sin
@@ -106,7 +58,6 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo }) {
   const [valores, setValores] = useState({})
   const [firmas, setFirmas] = useState({})
   const [firmando, setFirmando] = useState(null)
-  const [manzanaAbierta, setManzanaAbierta] = useState(null) // manzana del croquis abierta en modal
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState(null)
   const [guardando, setGuardando] = useState(false)
@@ -227,14 +178,6 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo }) {
     new Set(campos.filter((c) => c.tipo === 'radio').map((c) => c.name)).size
   const completados =
     Object.values(valores).filter((v) => v).length + Object.keys(firmas).length
-
-  // Reconstruir las 9 manzanas del croquis (si este documento las
-  // tiene) a partir de los 36 puntos individuales del campo "radio".
-  const puntosCroquis = useMemo(
-    () => campos.filter((c) => c.tipo === 'radio' && c.name === 'punto_casa'),
-    [campos]
-  )
-  const manzanas = useMemo(() => agruparEnManzanas(puntosCroquis), [puntosCroquis])
 
   // ── 3. Guardar: rellenar el PDF real ──
   async function handleGuardar() {
@@ -389,9 +332,6 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo }) {
 
               {campos
                 .filter((c) => c.page === index)
-                // Los 36 puntos del croquis no se pintan uno por uno acá:
-                // se muestran agrupados como 9 zonas grandes, más abajo.
-                .filter((c) => !(c.tipo === 'radio' && c.name === 'punto_casa'))
                 .map((campo, i) => {
                   const s = viewport.scale
                   const cssTop = viewport.height - (campo.rect.y + campo.rect.height) * s
@@ -453,7 +393,10 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo }) {
                   }
 
                   if (campo.tipo === 'radio') {
-                    const tap = zonaTactil(cssTop, cssLeft, cssWidth, cssHeight)
+                    // Zona táctil chica a propósito (ver TAP_MIN_PUNTO): los
+                    // 4 puntos de una misma manzana están muy cerca entre sí.
+                    const tap = zonaTactil(cssTop, cssLeft, cssWidth, cssHeight, TAP_MIN_PUNTO)
+                    const visual = Math.max(cssWidth, TAP_MIN_PUNTO - 4)
                     const seleccionado = valores[campo.name] === campo.opcion
                     return (
                       <button
@@ -467,7 +410,7 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo }) {
                           className={`rounded-full border-2 flex items-center justify-center transition-colors ${
                             seleccionado ? 'border-brand-600' : 'border-slate-400 hover:border-brand-400'
                           }`}
-                          style={{ width: cssWidth, height: cssHeight }}
+                          style={{ width: visual, height: visual }}
                         >
                           {seleccionado && <span className="w-1/2 h-1/2 rounded-full bg-brand-500" />}
                         </span>
@@ -492,53 +435,10 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo }) {
                     />
                   )
                 })}
-
-              {/* Croquis: 9 zonas grandes (una por manzana). Tocar una
-                  abre el modal ampliado para elegir el punto exacto. */}
-              {manzanas
-                .filter((m) => m.page === index)
-                .map((manzana) => {
-                  const s = viewport.scale
-                  const cssTop = viewport.height - (manzana.rect.y + manzana.rect.height) * s
-                  const cssLeft = manzana.rect.x * s
-                  const cssWidth = manzana.rect.width * s
-                  const cssHeight = manzana.rect.height * s
-                  const opcionElegida = manzana.puntos.find((p) => p.opcion === valores.punto_casa)
-
-                  return (
-                    <button
-                      key={`${manzana.rect.x}-${manzana.rect.y}`}
-                      type="button"
-                      onClick={() => setManzanaAbierta(manzana)}
-                      style={{ top: cssTop, left: cssLeft, width: cssWidth, height: cssHeight }}
-                      className={`absolute rounded transition-colors flex items-center justify-center ${
-                        opcionElegida
-                          ? 'bg-brand-500/15 ring-2 ring-brand-500'
-                          : 'hover:bg-brand-500/10 ring-1 ring-transparent hover:ring-brand-400'
-                      }`}
-                      title="Tocar para marcar el punto exacto"
-                    >
-                      {opcionElegida && (
-                        <MapPin className="w-1/3 h-1/3 text-brand-700" strokeWidth={2.5} />
-                      )}
-                    </button>
-                  )
-                })}
             </div>
           ))}
         </div>
       </div>
-
-      {manzanaAbierta && (
-        <CroquisModal
-          manzana={manzanaAbierta}
-          sourceCanvas={canvasRefs.current[manzanaAbierta.page]}
-          scale={paginasInfo.find((p) => p.index === manzanaAbierta.page)?.viewport.scale ?? 1}
-          seleccionado={valores.punto_casa}
-          onSelect={(opcion) => { setValor('punto_casa', opcion); setManzanaAbierta(null) }}
-          onClose={() => setManzanaAbierta(null)}
-        />
-      )}
 
       {firmando && (
         <SignaturePad onConfirm={confirmarFirma} onClose={() => setFirmando(null)} />

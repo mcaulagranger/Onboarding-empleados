@@ -4,6 +4,7 @@ import 'react-toastify/dist/ReactToastify.css'
 import { useAuth } from './contexts/AuthContext'
 import Layout from './components/Layout'
 import Login from './pages/Login'
+import SetPassword from './pages/SetPassword'
 import AdminDashboard from './pages/admin/Dashboard'
 import Employees from './pages/admin/Employees'
 import EmployeeDetail from './pages/admin/EmployeeDetail'
@@ -63,6 +64,7 @@ export default function App() {
       />
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/establecer-clave" element={<SetPassword />} />
 
         {/* Panel operativo: admin y rrhh */}
         <Route

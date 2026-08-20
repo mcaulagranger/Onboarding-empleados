@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { ClipboardList, CheckCircle, Clock, ArrowRight, PartyPopper, Sparkles, ListChecks } from 'lucide-react'
+import { ClipboardList, CheckCircle, Clock, ArrowRight, PartyPopper, Sparkles, ListChecks, PenLine } from 'lucide-react'
 import StatusBadge from '../../components/StatusBadge'
+import FirmaCaptura from '../../components/FirmaCaptura'
 
 // El viewBox usa unidades relativas (0–100), así que el círculo
 // escala solo con el tamaño del contenedor: no hace falta
@@ -37,6 +38,7 @@ export default function EmployeeDashboard() {
   const { user, profile } = useAuth()
   const [docs, setDocs] = useState([])
   const [loading, setLoading] = useState(true)
+  const [editarFirma, setEditarFirma] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -143,6 +145,35 @@ export default function EmployeeDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Mi firma */}
+      <div className="card p-4 flex items-center gap-4">
+        <div className="w-10 h-10 bg-brand-50 rounded-lg flex items-center justify-center flex-shrink-0">
+          <PenLine className="w-5 h-5 text-brand-600" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="font-medium text-ink text-sm">Mi firma</p>
+          <p className="text-xs text-slate-500">
+            {profile?.signature_data
+              ? 'Se usará para firmar tus documentos con un toque.'
+              : 'Todavía no registraste tu firma.'}
+          </p>
+        </div>
+        {profile?.signature_data && (
+          <img
+            src={profile.signature_data}
+            alt="Tu firma"
+            className="h-10 max-w-[120px] object-contain bg-white rounded border border-slate-200 px-1"
+          />
+        )}
+        <button onClick={() => setEditarFirma(true)} className="btn-secondary text-xs py-1.5 flex-shrink-0">
+          {profile?.signature_data ? 'Cambiar' : 'Crear'}
+        </button>
+      </div>
+
+      {editarFirma && (
+        <FirmaCaptura onClose={() => setEditarFirma(false)} onSaved={() => setEditarFirma(false)} />
+      )}
 
       {/* Lista de docs */}
       <div className="card">

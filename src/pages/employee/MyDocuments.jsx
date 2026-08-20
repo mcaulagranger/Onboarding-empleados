@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { toast } from 'react-toastify'
 import StatusBadge from '../../components/StatusBadge'
 import Modal from '../../components/Modal'
+import FirmaCaptura from '../../components/FirmaCaptura'
 import {
   FileText, Download, Upload, CheckCircle2, Eye,
   Clock, AlertCircle, PenLine,
@@ -27,9 +28,10 @@ function sanearNombreArchivo(nombre) {
 }
 
 export default function MyDocuments() {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const [docs, setDocs] = useState([])
   const [loading, setLoading] = useState(true)
+  const [necesitaFirma, setNecesitaFirma] = useState(false) // pedir firma si falta
   const [activeDoc, setActiveDoc] = useState(null) // modal de subida manual (opción alternativa)
   const [file, setFile] = useState(null)
   const [uploading, setUploading] = useState(false)
@@ -195,8 +197,9 @@ export default function MyDocuments() {
       <div className="flex gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800">
         <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-blue-500" />
         <p>
-          Tocá <strong>"Completar ahora"</strong> para abrir el documento y llenarlo ahí mismo,
-          incluida la firma a mano. Si preferís descargarlo y completarlo aparte, esa opción
+          Tocá <strong>"Completar ahora"</strong> para abrir el documento y llenarlo ahí mismo.
+          Donde diga firmar, tocá <strong>"Colocar firma"</strong> y se pega la firma que
+          registraste al ingresar. Si preferís descargarlo y completarlo aparte, esa opción
           sigue disponible más abajo de cada documento.
         </p>
       </div>
@@ -262,10 +265,20 @@ export default function MyDocuments() {
           <PdfFormFiller
             fileUrl={fillerUrl}
             titulo={fillerDoc.document_templates?.name}
+            savedSignature={profile?.signature_data}
+            onNeedSignature={() => setNecesitaFirma(true)}
             onSubmit={handleGuardarDesdeFiller}
             onCancel={() => { setFillerDoc(null); setFillerUrl(null) }}
           />
         </Suspense>
+      )}
+
+      {/* Si el empleado toca "Colocar firma" y todavía no tiene una guardada */}
+      {necesitaFirma && (
+        <FirmaCaptura
+          onClose={() => setNecesitaFirma(false)}
+          onSaved={() => setNecesitaFirma(false)}
+        />
       )}
 
       {/* Alternativa: subir un archivo completado aparte */}

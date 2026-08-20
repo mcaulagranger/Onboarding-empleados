@@ -5,7 +5,7 @@ import { toast } from 'react-toastify'
 import Modal from '../../components/Modal'
 import {
   UserPlus, Search, ChevronRight, Calendar, Briefcase,
-  CheckCircle, Clock, Users
+  CheckCircle, Clock, Users, Mail, KeyRound
 } from 'lucide-react'
 
 function ProgressBar({ completed, total }) {
@@ -33,6 +33,7 @@ export default function Employees() {
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
     full_name: '', email: '', password: '', department: '', position: '', start_date: '',
+    invitar: true, // por defecto se manda la invitación por email
   })
 
   async function loadEmployees() {
@@ -74,7 +75,9 @@ export default function Employees() {
         body: {
           full_name: form.full_name,
           email: form.email,
-          password: form.password,
+          // Si es por invitación no mandamos contraseña; la define el empleado.
+          invitar: form.invitar,
+          password: form.invitar ? undefined : form.password,
           department: form.department,
           position: form.position,
           start_date: form.start_date || null,
@@ -98,9 +101,13 @@ export default function Employees() {
       if (data?.error) throw new Error(data.error)
       if (data?.warning) toast.warning(data.warning)
 
-      toast.success(`${form.full_name} ya puede ingresar al portal`)
+      toast.success(
+        (data?.invitado ?? form.invitar)
+          ? `Invitación enviada a ${form.email}`
+          : `${form.full_name} ya puede ingresar al portal`
+      )
       setShowModal(false)
-      setForm({ full_name: '', email: '', password: '', department: '', position: '', start_date: '' })
+      setForm({ full_name: '', email: '', password: '', department: '', position: '', start_date: '', invitar: true })
       loadEmployees()
     } catch (err) {
       toast.error(err.message ?? 'No se pudo crear el empleado')
@@ -232,13 +239,50 @@ export default function Employees() {
                   onChange={(e) => setForm({ ...form, email: e.target.value })} />
               </div>
               <div className="col-span-2">
-                <label className="label">Contraseña temporal *</label>
-                <input className="input" type="password" required minLength={6} value={form.password}
-                  placeholder="Mínimo 6 caracteres"
-                  onChange={(e) => setForm({ ...form, password: e.target.value })} />
-                <p className="text-xs text-slate-500 mt-1">
-                  Compartila con el empleado para su primer ingreso.
-                </p>
+                <label className="label">Cómo ingresa el empleado</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, invitar: true })}
+                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm text-left transition-colors ${
+                      form.invitar
+                        ? 'border-brand-500 bg-brand-50 text-brand-800'
+                        : 'border-slate-200 hover:bg-slate-50 text-slate-600'
+                    }`}
+                  >
+                    <Mail className="w-4 h-4 flex-shrink-0" />
+                    <span>Invitación por email</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, invitar: false })}
+                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm text-left transition-colors ${
+                      !form.invitar
+                        ? 'border-brand-500 bg-brand-50 text-brand-800'
+                        : 'border-slate-200 hover:bg-slate-50 text-slate-600'
+                    }`}
+                  >
+                    <KeyRound className="w-4 h-4 flex-shrink-0" />
+                    <span>Contraseña temporal</span>
+                  </button>
+                </div>
+
+                {form.invitar ? (
+                  <p className="text-xs text-slate-500 mt-2">
+                    Se le enviará un email para que defina su propia contraseña y
+                    entre al portal.
+                  </p>
+                ) : (
+                  <div className="mt-3">
+                    <label className="label">Contraseña temporal *</label>
+                    <input className="input" type="password" required minLength={6} value={form.password}
+                      placeholder="Mínimo 6 caracteres"
+                      onChange={(e) => setForm({ ...form, password: e.target.value })} />
+                    <p className="text-xs text-slate-500 mt-1">
+                      Compartila con el empleado para su primer ingreso.
+                    </p>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="label">Área / Departamento</label>

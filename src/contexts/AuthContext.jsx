@@ -46,8 +46,22 @@ export function AuthProvider({ children }) {
     setProfile(null)
   }
 
+  // Guarda (o reemplaza) la firma del empleado. Se almacena como PNG en
+  // base64 (data URL) en profiles.signature_data — chiquito y sin tener
+  // que crear un bucket aparte. Actualiza también el estado local para
+  // que la app la tenga disponible al instante.
+  async function updateSignature(dataUrl) {
+    if (!user) throw new Error('No hay sesión activa')
+    const { error } = await supabase
+      .from('profiles')
+      .update({ signature_data: dataUrl })
+      .eq('id', user.id)
+    if (error) throw error
+    setProfile((p) => (p ? { ...p, signature_data: dataUrl } : p))
+  }
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, signOut, fetchProfile }}>
+    <AuthContext.Provider value={{ user, profile, loading, signIn, signOut, fetchProfile, updateSignature }}>
       {children}
     </AuthContext.Provider>
   )

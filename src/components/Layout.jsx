@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
+import SignatureGate from './SignatureGate'
+import DatosPersonalesGate from './DatosPersonalesGate'
 import { Menu } from 'lucide-react'
 
 export default function Layout() {
@@ -44,6 +46,10 @@ export default function Layout() {
           <Outlet />
         </main>
       </div>
+
+      {/* Primer ingreso del empleado: 1) datos personales, 2) firma. */}
+      <DatosPersonalesGate />
+      <SignatureGate />
     </div>
   )
 }

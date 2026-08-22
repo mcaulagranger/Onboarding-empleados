@@ -5,16 +5,31 @@ import { useAuth } from '../../contexts/AuthContext'
 import { toast } from 'react-toastify'
 import Modal from '../../components/Modal'
 import StatusBadge from '../../components/StatusBadge'
+import Tooltip from '../../components/Tooltip'
+import EmptyState from '../../components/EmptyState'
+import { SkeletonRow } from '../../components/Skeleton'
+import { TabGroup, TabList, Tab, TabPanels, TabPanel } from '@headlessui/react'
 import {
   ArrowLeft, Plus, Download, Trash2, UserCircle, Mail, Phone,
-  Calendar, Briefcase, FileText, CheckCircle2, Send, BellRing
+  Calendar, Briefcase, FileText, CheckCircle2, Send, BellRing, PenLine
 } from 'lucide-react'
+
+// Fila de dato (label + valor) para la pestaña de datos personales.
+function Dato({ label, value }) {
+  return (
+    <div>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="text-sm text-fg mt-0.5 break-words">{value || '—'}</p>
+    </div>
+  )
+}
 
 export default function EmployeeDetail() {
   const { id } = useParams()
   const { profile: adminProfile } = useAuth()
   const [employee, setEmployee] = useState(null)
   const [docs, setDocs] = useState([])
+  const [datos, setDatos] = useState(null)
   const [templates, setTemplates] = useState([])
   const [selected, setSelected] = useState([])
   const [showAssign, setShowAssign] = useState(false)
@@ -24,7 +39,7 @@ export default function EmployeeDetail() {
   const [remindingId, setRemindingId] = useState(null)
 
   async function loadData() {
-    const [empRes, docsRes, tplRes] = await Promise.all([
+    const [empRes, docsRes, tplRes, datosRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', id).single(),
       supabase
         .from('employee_documents')
@@ -32,10 +47,12 @@ export default function EmployeeDetail() {
         .eq('employee_id', id)
         .order('created_at', { ascending: false }),
       supabase.from('document_templates').select('*').eq('is_active', true),
+      supabase.from('datos_personales').select('*').eq('employee_id', id).maybeSingle(),
     ])
     setEmployee(empRes.data)
     setDocs(docsRes.data ?? [])
     setTemplates(tplRes.data ?? [])
+    setDatos(datosRes.data ?? null)
     setLoading(false)
   }
 
@@ -166,8 +183,17 @@ export default function EmployeeDetail() {
   }
 
   if (loading) return (
-    <div className="flex justify-center py-16">
-      <div className="w-7 h-7 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
+    <div className="space-y-6">
+      <div className="h-8 w-56 bg-slate-200/70 rounded animate-pulse" />
+      <div className="grid lg:grid-cols-3 gap-6">
+        <div className="space-y-4">
+          <div className="h-48 bg-slate-200/70 rounded-xl animate-pulse" />
+          <div className="h-32 bg-slate-200/70 rounded-xl animate-pulse" />
+        </div>
+        <div className="lg:col-span-2 card overflow-hidden">
+          <SkeletonRow /><SkeletonRow /><SkeletonRow />
+        </div>
+      </div>
     </div>
   )
 
@@ -257,17 +283,36 @@ export default function EmployeeDetail() {
           </div>
         </div>
 
-        {/* Documentos asignados */}
-        <div className="lg:col-span-2 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="section-heading">Documentos asignados</h2>
-            {available.length > 0 && (
-              <button onClick={() => setShowAssign(true)} className="btn-primary text-sm py-1.5">
-                <Plus className="w-4 h-4" />
-                Asignar documentos
-              </button>
-            )}
-          </div>
+        {/* Panel derecho con pestañas */}
+        <div className="lg:col-span-2">
+          <TabGroup>
+            <TabList className="flex gap-1 border-b border-slate-200 mb-4">
+              {['Documentos', 'Datos personales', 'Firma'].map((t) => (
+                <Tab
+                  key={t}
+                  className={({ selected }) =>
+                    `px-3.5 py-2 text-sm font-medium border-b-2 -mb-px transition-colors focus:outline-none ${
+                      selected ? 'border-brand-500 text-ink' : 'border-transparent text-slate-500 hover:text-ink'
+                    }`
+                  }
+                >
+                  {t}
+                </Tab>
+              ))}
+            </TabList>
+
+            <TabPanels>
+              {/* Pestaña: Documentos */}
+              <TabPanel className="space-y-4 focus:outline-none">
+                <div className="flex items-center justify-between">
+                  <h2 className="section-heading">Documentos asignados</h2>
+                  {available.length > 0 && (
+                    <button onClick={() => setShowAssign(true)} className="btn-primary text-sm py-1.5">
+                      <Plus className="w-4 h-4" />
+                      Asignar documentos
+                    </button>
+                  )}
+                </div>
 
           {docs.length === 0 ? (
             <div className="card py-12 text-center">
@@ -314,56 +359,129 @@ export default function EmployeeDetail() {
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <StatusBadge status={doc.status} />
                     {/* Descargar plantilla */}
-                    <button
-                      onClick={() => handleDownloadTemplate(
-                        doc.document_templates?.file_path,
-                        doc.document_templates?.name + '.pdf'
-                      )}
-                      className="p-1.5 rounded text-slate-400 hover:text-brand-700 hover:bg-brand-100 transition-colors"
-                      title="Descargar plantilla"
-                    >
-                      <Download className="w-4 h-4" />
-                    </button>
+                    <Tooltip label="Descargar plantilla">
+                      <button
+                        onClick={() => handleDownloadTemplate(
+                          doc.document_templates?.file_path,
+                          doc.document_templates?.name + '.pdf'
+                        )}
+                        className="p-1.5 rounded text-slate-400 hover:text-brand-700 hover:bg-brand-100 transition-colors"
+                        aria-label="Descargar plantilla"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
+                    </Tooltip>
                     {/* Descargar completado */}
                     {doc.status === 'completed' && doc.completed_file_path && (
-                      <button
-                        onClick={() => handleDownload(
-                          doc.completed_file_path,
-                          `${employee.full_name}_${doc.document_templates?.name}.pdf`
-                        )}
-                        className="p-1.5 rounded text-emerald-600 hover:bg-emerald-50 transition-colors"
-                        title="Descargar documento completado"
-                      >
-                        <CheckCircle2 className="w-4 h-4" />
-                      </button>
+                      <Tooltip label="Descargar documento completado">
+                        <button
+                          onClick={() => handleDownload(
+                            doc.completed_file_path,
+                            `${employee.full_name}_${doc.document_templates?.name}.pdf`
+                          )}
+                          className="p-1.5 rounded text-emerald-600 hover:bg-emerald-50 transition-colors"
+                          aria-label="Descargar documento completado"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                        </button>
+                      </Tooltip>
                     )}
                     {/* Recordatorio por mail (solo pendientes) */}
                     {doc.status === 'pending' && (
-                      <button
-                        onClick={() => handleRemind(doc)}
-                        disabled={remindingId === doc.id}
-                        className="p-1.5 rounded text-slate-400 hover:text-brand-700 hover:bg-brand-100 transition-colors disabled:opacity-50"
-                        title="Enviar recordatorio por mail"
-                      >
-                        {remindingId === doc.id ? (
-                          <span className="block w-4 h-4 border-2 border-brand-500/40 border-t-brand-600 rounded-full animate-spin" />
-                        ) : (
-                          <BellRing className="w-4 h-4" />
-                        )}
-                      </button>
+                      <Tooltip label="Enviar recordatorio por mail">
+                        <button
+                          onClick={() => handleRemind(doc)}
+                          disabled={remindingId === doc.id}
+                          className="p-1.5 rounded text-slate-400 hover:text-brand-700 hover:bg-brand-100 transition-colors disabled:opacity-50"
+                          aria-label="Enviar recordatorio por mail"
+                        >
+                          {remindingId === doc.id ? (
+                            <span className="block w-4 h-4 border-2 border-brand-500/40 border-t-brand-600 rounded-full animate-spin" />
+                          ) : (
+                            <BellRing className="w-4 h-4" />
+                          )}
+                        </button>
+                      </Tooltip>
                     )}
-                    <button
-                      onClick={() => handleRemoveDoc(doc.id)}
-                      className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                      title="Quitar documento"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <Tooltip label="Quitar documento">
+                      <button
+                        onClick={() => handleRemoveDoc(doc.id)}
+                        className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        aria-label="Quitar documento"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </Tooltip>
                   </div>
                 </div>
               ))}
             </div>
           )}
+              </TabPanel>
+
+              {/* Pestaña: Datos personales */}
+              <TabPanel className="focus:outline-none">
+                {datos ? (
+                  <div className="card p-5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+                      <Dato label="Nombre y apellido" value={datos.nombre_apellido} />
+                      <Dato label="DNI" value={datos.dni} />
+                      <Dato
+                        label="Fecha de nacimiento"
+                        value={datos.fecha_nacimiento
+                          ? new Date(datos.fecha_nacimiento + 'T00:00:00').toLocaleDateString('es-AR')
+                          : ''}
+                      />
+                      <Dato label="Lugar de nacimiento" value={datos.lugar_nacimiento} />
+                      <Dato label="Género" value={datos.genero} />
+                      <Dato label="Estado civil" value={datos.estado_civil} />
+                      <Dato label="Hijos dependientes" value={datos.hijos_dependientes ?? ''} />
+                      <Dato label="Teléfono privado" value={datos.telefono_privado} />
+                      <Dato label="Correo privado" value={datos.email_privado} />
+                      <Dato label="Domicilio" value={datos.domicilio} />
+                      <Dato label="Placa de vehículo" value={datos.placa_vehiculo} />
+                      <Dato label="Contacto de emergencia" value={datos.contacto_emergencia} />
+                      <Dato label="Tel. de emergencia" value={datos.telefono_emergencia} />
+                      <Dato label="¿Estudia?" value={datos.estudia == null ? '' : datos.estudia ? 'Sí' : 'No'} />
+                      <Dato label="Nivel de educación" value={datos.nivel_educacion} />
+                      <Dato label="Estado educación" value={datos.estado_educacion} />
+                      <Dato label="Institución" value={datos.institucion} />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="card">
+                    <EmptyState
+                      icon={UserCircle}
+                      title="Sin datos personales"
+                      description="El empleado todavía no completó el formulario de datos personales."
+                    />
+                  </div>
+                )}
+              </TabPanel>
+
+              {/* Pestaña: Firma */}
+              <TabPanel className="focus:outline-none">
+                <div className="card p-6">
+                  {employee.signature_data ? (
+                    <div className="space-y-3">
+                      <p className="text-sm text-slate-600">Firma registrada por el empleado:</p>
+                      <img
+                        src={employee.signature_data}
+                        alt="Firma del empleado"
+                        className="max-h-40 max-w-full object-contain bg-white border border-slate-200 rounded-lg p-3"
+                      />
+                    </div>
+                  ) : (
+                    <EmptyState
+                      icon={PenLine}
+                      title="Sin firma registrada"
+                      description="El empleado todavía no registró su firma."
+                    />
+                  )}
+                </div>
+              </TabPanel>
+            </TabPanels>
+          </TabGroup>
         </div>
       </div>
 

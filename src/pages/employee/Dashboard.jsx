@@ -2,9 +2,12 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { ClipboardList, CheckCircle, Clock, ArrowRight, PartyPopper, Sparkles, ListChecks, PenLine } from 'lucide-react'
+import { ClipboardList, CheckCircle, Clock, ArrowRight, PartyPopper, Sparkles, ListChecks, PenLine, FileText } from 'lucide-react'
 import StatusBadge from '../../components/StatusBadge'
 import FirmaCaptura from '../../components/FirmaCaptura'
+import OnboardingChecklist from '../../components/OnboardingChecklist'
+import EmptyState from '../../components/EmptyState'
+import { SkeletonStat, SkeletonRow, Skeleton } from '../../components/Skeleton'
 
 // El viewBox usa unidades relativas (0–100), así que el círculo
 // escala solo con el tamaño del contenedor: no hace falta
@@ -55,13 +58,27 @@ export default function EmployeeDashboard() {
 
   const pending = docs.filter((d) => d.status === 'pending')
   const completed = docs.filter((d) => d.status === 'completed')
-  const allDone = docs.length > 0 && pending.length === 0
-  const pct = docs.length ? Math.round((completed.length / docs.length) * 100) : 0
+  const docsAllDone = docs.length === 0 || pending.length === 0
   const proximo = pending[0]
 
+  // Onboarding holístico: datos personales + firma + documentos.
+  const datosOk = !!profile?.datos_completos
+  const firmaOk = !!profile?.signature_data
+  const pasosBase = 2 // datos + firma
+  const totalPasos = pasosBase + docs.length
+  const pasosHechos = (datosOk ? 1 : 0) + (firmaOk ? 1 : 0) + completed.length
+  const pct = totalPasos ? Math.round((pasosHechos / totalPasos) * 100) : 0
+  const allDone = datosOk && firmaOk && docsAllDone
+
   if (loading) return (
-    <div className="flex justify-center py-16">
-      <div className="w-7 h-7 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" />
+    <div className="space-y-6 w-full max-w-5xl">
+      <Skeleton className="w-full h-44 rounded-2xl" />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <SkeletonStat /><SkeletonStat /><SkeletonStat />
+      </div>
+      <div className="card overflow-hidden">
+        <SkeletonRow /><SkeletonRow /><SkeletonRow />
+      </div>
     </div>
   )
 
@@ -96,12 +113,60 @@ export default function EmployeeDashboard() {
               </Link>
             )}
           </div>
-          {docs.length > 0 && (
-            <div className="flex justify-center sm:justify-end">
-              <ProgressRing pct={pct} />
-            </div>
-          )}
+          <div className="flex justify-center sm:justify-end">
+            <ProgressRing pct={pct} />
+          </div>
         </div>
+      </div>
+
+      {/* Checklist de onboarding */}
+      <div className="card overflow-hidden">
+        <div className="px-5 pt-4 pb-3 border-b border-slate-200">
+          <div className="flex items-center justify-between mb-2.5">
+            <h2 className="font-semibold text-ink flex items-center gap-2">
+              <ListChecks className="w-4 h-4 text-brand-600" />
+              Tu onboarding
+            </h2>
+            <span className="text-xs font-semibold text-slate-500 tabular-nums">{pct}%</span>
+          </div>
+          <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-brand-500 rounded-full"
+              style={{ width: `${pct}%`, transition: 'width 0.8s cubic-bezier(0.4,0,0.2,1)' }}
+            />
+          </div>
+        </div>
+        <OnboardingChecklist
+          steps={[
+            {
+              label: 'Completar datos personales',
+              done: datosOk,
+              hint: datosOk ? null : 'Pendiente',
+            },
+            {
+              label: 'Registrar tu firma',
+              done: firmaOk,
+              hint: firmaOk ? null : 'La usás para firmar tus documentos con un toque',
+              action: (
+                <button onClick={() => setEditarFirma(true)} className="btn-secondary text-xs py-1.5">
+                  Registrar
+                </button>
+              ),
+            },
+            {
+              label: 'Completar documentos',
+              done: docs.length > 0 && docsAllDone,
+              hint: docs.length
+                ? `${completed.length} de ${docs.length} completados`
+                : 'RRHH aún no te asignó documentos',
+              action: pending.length > 0 ? (
+                <Link to="/empleado/documentos" className="btn-primary text-xs py-1.5">
+                  Continuar
+                </Link>
+              ) : null,
+            },
+          ]}
+        />
       </div>
 
       {/* Completado total */}
@@ -190,12 +255,11 @@ export default function EmployeeDashboard() {
           </Link>
         </div>
         {docs.length === 0 ? (
-          <div className="py-12 text-center">
-            <ClipboardList className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-            <p className="text-slate-500 text-sm">
-              RRHH aún no te asignó documentos. Volvé pronto.
-            </p>
-          </div>
+          <EmptyState
+            icon={ClipboardList}
+            title="Sin documentos por ahora"
+            description="RRHH todavía no te asignó documentos. Cuando lo haga, van a aparecer acá."
+          />
         ) : (
           <div className="divide-y divide-slate-100">
             {docs.slice(0, 5).map((doc) => (

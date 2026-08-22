@@ -14,22 +14,30 @@ export default function SignaturePad({ onConfirm, onClose }) {
   const ultimoPunto = useRef(null)
 
   useEffect(() => {
-    const canvas = canvasRef.current
+    let cancelado = false
+    let rafId
 
     function preparar() {
-      const ctx = canvas.getContext('2d')
-      const ratio = window.devicePixelRatio || 1
-      const { width, height } = canvas.getBoundingClientRect()
-
-      // Si el layout todavía no asentó (medida en cero, puede pasar
-      // justo al abrir el modal), se reintenta en el próximo frame en
-      // vez de dejar el lienzo con un buffer de 0x0 — eso haría que
-      // cualquier trazo dibujado no se guarde en ningún lado.
-      if (width === 0 || height === 0) {
-        requestAnimationFrame(preparar)
+      if (cancelado) return
+      const canvas = canvasRef.current
+      // Con el Modal (portal + animación de entrada) el <canvas> puede no
+      // estar montado todavía cuando corre este efecto: reintentamos en el
+      // próximo frame en vez de romper con getContext de null.
+      if (!canvas) {
+        rafId = requestAnimationFrame(preparar)
         return
       }
 
+      const { width, height } = canvas.getBoundingClientRect()
+      // Si el layout aún no asentó (medida en cero), reintentar: dejar el
+      // buffer en 0x0 haría que los trazos no se guarden en ningún lado.
+      if (width === 0 || height === 0) {
+        rafId = requestAnimationFrame(preparar)
+        return
+      }
+
+      const ctx = canvas.getContext('2d')
+      const ratio = window.devicePixelRatio || 1
       canvas.width = width * ratio
       canvas.height = height * ratio
       ctx.scale(ratio, ratio)
@@ -40,6 +48,10 @@ export default function SignaturePad({ onConfirm, onClose }) {
     }
 
     preparar()
+    return () => {
+      cancelado = true
+      if (rafId) cancelAnimationFrame(rafId)
+    }
   }, [])
 
   function posicionDesdeEvento(e) {

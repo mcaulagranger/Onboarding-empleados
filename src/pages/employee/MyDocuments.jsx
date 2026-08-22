@@ -5,6 +5,8 @@ import { toast } from 'react-toastify'
 import StatusBadge from '../../components/StatusBadge'
 import Modal from '../../components/Modal'
 import FirmaCaptura from '../../components/FirmaCaptura'
+import EmptyState from '../../components/EmptyState'
+import { SkeletonRow } from '../../components/Skeleton'
 import {
   FileText, Download, Upload, CheckCircle2, Eye,
   Clock, AlertCircle, PenLine,
@@ -176,8 +178,14 @@ export default function MyDocuments() {
   }
 
   if (loading) return (
-    <div className="flex justify-center py-16">
-      <div className="w-7 h-7 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
+    <div className="space-y-6 max-w-2xl">
+      <div className="space-y-2">
+        <div className="h-7 w-48 bg-slate-200/70 rounded animate-pulse" />
+        <div className="h-4 w-72 bg-slate-200/70 rounded animate-pulse" />
+      </div>
+      <div className="card overflow-hidden">
+        <SkeletonRow /><SkeletonRow /><SkeletonRow />
+      </div>
     </div>
   )
 
@@ -205,11 +213,12 @@ export default function MyDocuments() {
       </div>
 
       {docs.length === 0 ? (
-        <div className="card py-16 text-center">
-          <FileText className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-          <p className="text-slate-500 text-sm">
-            RRHH aún no te asignó documentos. Revisá más tarde.
-          </p>
+        <div className="card">
+          <EmptyState
+            icon={FileText}
+            title="Sin documentos por ahora"
+            description="RRHH todavía no te asignó documentos. Cuando lo haga, van a aparecer acá para completar."
+          />
         </div>
       ) : (
         <>

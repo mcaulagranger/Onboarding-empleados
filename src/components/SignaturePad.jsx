@@ -83,9 +83,43 @@ export default function SignaturePad({ onConfirm, onClose }) {
     setTieneTrazo(false)
   }
 
+  // Recorta el lienzo al área realmente dibujada (saca todo el espacio
+  // transparente de alrededor). Así, al estamparla en el PDF, la firma
+  // ocupa bien el campo en vez de quedar diminuta en el medio.
+  function recortarAlTrazo(canvas) {
+    try {
+      const ctx = canvas.getContext('2d')
+      const { width, height } = canvas
+      const data = ctx.getImageData(0, 0, width, height).data
+      let minX = width, minY = height, maxX = 0, maxY = 0, hayTinta = false
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if (data[(y * width + x) * 4 + 3] > 10) {
+            hayTinta = true
+            if (x < minX) minX = x
+            if (x > maxX) maxX = x
+            if (y < minY) minY = y
+            if (y > maxY) maxY = y
+          }
+        }
+      }
+      if (!hayTinta) return canvas.toDataURL('image/png')
+      const pad = Math.round(Math.max(width, height) * 0.02)
+      minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad)
+      maxX = Math.min(width - 1, maxX + pad); maxY = Math.min(height - 1, maxY + pad)
+      const w = maxX - minX + 1, h = maxY - minY + 1
+      const out = document.createElement('canvas')
+      out.width = w; out.height = h
+      out.getContext('2d').drawImage(canvas, minX, minY, w, h, 0, 0, w, h)
+      return out.toDataURL('image/png')
+    } catch {
+      return canvas.toDataURL('image/png')
+    }
+  }
+
   function confirmar() {
     if (!tieneTrazo) return
-    const dataUrl = canvasRef.current.toDataURL('image/png')
+    const dataUrl = recortarAlTrazo(canvasRef.current)
     onConfirm(dataUrl)
   }
 

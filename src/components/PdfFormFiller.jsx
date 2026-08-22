@@ -3,9 +3,23 @@ import * as pdfjsLib from 'pdfjs-dist'
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { PDFDocument, PDFCheckBox, PDFRadioGroup } from 'pdf-lib'
 import { Send, PenLine, X, Trash2, Check, ZoomIn, ZoomOut } from 'lucide-react'
+import { toast } from 'react-toastify'
 import CroquisCanvas from './CroquisCanvas'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker
+
+// Detección de campos que deben ser numéricos, por su etiqueta de texto.
+const RE_CBU = /\bcbu\b/i
+const RE_NUMERICO = /cbu|cuit|cuil|\bdni\b|tel[eé]fono|c[oó]digo\s*postal|n[uú]mero de cuenta/i
+
+// La etiqueta de un campo = el texto de la misma línea, a su izquierda.
+function etiquetaDeCampo(rect, itemsPagina) {
+  const enLinea = (itemsPagina || []).filter(
+    (t) => t.str.trim() && Math.abs(t.y - rect.y) < 8 && t.x < rect.x + 5
+  )
+  enLinea.sort((a, b) => b.x - a.x)
+  return enLinea.slice(0, 2).reverse().map((t) => t.str).join(' ').trim().slice(-40)
+}
 
 // Tamaño mínimo de zona táctil (px) para las casillas: aunque el campo
 // real sea chico, se toca cómodo con el dedo. Se mantiene chico porque
@@ -160,6 +174,9 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
               const rect = wg.getRectangle()
               const pageIndex = pageRefToIndex.get(wg.P()?.toString())
               if (pageIndex === undefined) return
+              // Ignorar campos anulados/invisibles (tamaño ~0): no se muestran
+              // ni cuentan (p. ej. un campo mal ubicado que se dejó en 0x0).
+              if (rect.width < 1 || rect.height < 1) return
 
               let tipo = 'texto'
               let realCheck = false
@@ -177,7 +194,10 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
               // hace falta adivinar por tamaño, y adivinar convertía campos
               // chicos legítimos (Nº, Piso, Dpto, CP) en casillas por error.
 
-              extraidos.push({ name: nombre, tipo, realCheck, grupo, page: pageIndex, rect })
+              extraidos.push({
+                name: nombre, tipo, realCheck, grupo, page: pageIndex, rect,
+                esEmpleador: tipo === 'firma' ? /granger|empleador|empresa/i.test(nombre) : false,
+              })
             })
           }
         }
@@ -200,7 +220,6 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
         }
 
         if (cancelado) return
-        setCampos(extraidos)
         setRegiones(regionesCroquis)
 
         // ── Render de páginas (pdfjs-dist) ──
@@ -210,11 +229,60 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
         const doc = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise
         if (cancelado) return
         const base = []
+        const textosPorPagina = {}
         for (let i = 1; i <= doc.numPages; i++) {
           const page = await doc.getPage(i)
           base.push({ page, natural: page.getViewport({ scale: 1 }), index: i - 1 })
+          const tc = await page.getTextContent()
+          textosPorPagina[i - 1] = tc.items.map((it) => ({
+            str: it.str, x: it.transform[4], y: it.transform[5],
+          }))
         }
+
+        // Etiqueta de cada campo de texto → detectar CBU / campos numéricos.
+        for (const campo of extraidos) {
+          if (campo.tipo === 'firma') {
+            // ¿Es firma de la empresa/empleador? Primero por el NOMBRE del
+            // campo (que es lo más confiable); solo si el nombre no lo
+            // aclara, miramos el texto cercano.
+            const claroEmpleador = /empleador|empresa|granger|supervisor|jefe|gerente|patronal/i.test(campo.name)
+            const claroEmpleado = /trab|emplead/i.test(campo.name) && !claroEmpleador
+            if (claroEmpleador) {
+              campo.esEmpleador = true
+            } else if (claroEmpleado) {
+              campo.esEmpleador = false
+            } else {
+              // Nombre ambiguo → texto cercano (arriba o abajo del recuadro).
+              const items = textosPorPagina[campo.page] || []
+              const cerca = items.filter((t) =>
+                t.str.trim() &&
+                Math.abs(t.y - (campo.rect.y + campo.rect.height / 2)) < 28 &&
+                (t.x + 60) > campo.rect.x && t.x < campo.rect.x + campo.rect.width
+              )
+              const cap = cerca.map((t) => t.str).join(' ').toLowerCase()
+              // Solo lo marcamos como empresa si el texto habla de empresa/
+              // supervisor y NO menciona empleado/trabajador (para no confundir
+              // leyendas combinadas del tipo "empleado ... empresa").
+              if (/empresa|empleador|sello|granger|supervisor|jefe|gerente/.test(cap) && !/emplead|trabaj/.test(cap)) {
+                campo.esEmpleador = true
+              }
+            }
+            continue
+          }
+          if (campo.tipo !== 'texto') continue
+          // Campo de texto del lado de la empresa/supervisor: tampoco se
+          // completa desde la app (ej. "fecha_supervisor", "aclar_granger").
+          if (/empleador|empresa|granger|supervisor|jefe|gerente|patronal/i.test(campo.name)) {
+            campo.esEmpleador = true
+          }
+          const et = etiquetaDeCampo(campo.rect, textosPorPagina[campo.page])
+          campo.etiqueta = et
+          if (RE_CBU.test(et)) { campo.soloNumeros = true; campo.esCbu = true; campo.maxLen = 22 }
+          else if (RE_NUMERICO.test(et)) { campo.soloNumeros = true }
+        }
+
         if (!cancelado) {
+          setCampos(extraidos)
           basePagesRef.current = base
           setPdfListo(true)
           setCargando(false)
@@ -305,6 +373,28 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
     })
   }
 
+  // Coloca la firma guardada en TODAS las hojas del trabajador de una vez.
+  function firmarTodo() {
+    if (!savedSignature) {
+      onNeedSignature?.()
+      return
+    }
+    setFirmas((f) => {
+      const nuevas = { ...f }
+      for (const c of campos) {
+        if (c.tipo === 'firma' && !c.esEmpleador) nuevas[c.name] = savedSignature
+      }
+      return nuevas
+    })
+  }
+
+  // Nombres de las firmas que el empleado DEBE completar (todas las del
+  // trabajador; se excluyen las del empleador/empresa).
+  const firmasRequeridas = [...new Set(
+    campos.filter((c) => c.tipo === 'firma' && !c.esEmpleador).map((c) => c.name)
+  )]
+  const hayFirmas = firmasRequeridas.length > 0
+
   // Cuenta por NOMBRE de campo (no por widget): un campo repetido en
   // varias apariciones cuenta una sola vez.
   const nombresLlenables = new Set(campos.filter((c) => c.tipo !== 'firma').map((c) => c.name))
@@ -316,8 +406,33 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
   const totalCampos = nombresLlenables.size + nombresFirma.size + regiones.length
   const completados = nombresCompletos.size + firmasPuestas + Object.keys(croquisTocados).length
 
+  // Valida antes de guardar: CBU numérico completo y firma en todas las hojas.
+  function validar() {
+    // CBU: 22 dígitos exactos
+    for (const c of campos.filter((c) => c.esCbu)) {
+      const val = (valores[c.name] || '').trim()
+      if (val.length === 0) { toast.error('Falta completar el CBU.'); return false }
+      if (!/^\d{22}$/.test(val)) {
+        toast.error('El CBU debe tener 22 números (sin letras ni espacios).')
+        return false
+      }
+    }
+    // Firma en todas las hojas del trabajador
+    const faltan = firmasRequeridas.filter((n) => !firmas[n])
+    if (faltan.length > 0) {
+      toast.error(
+        faltan.length === firmasRequeridas.length
+          ? 'Tenés que firmar todas las hojas. Usá "Firmar todo".'
+          : `Falta la firma en ${faltan.length} hoja(s).`
+      )
+      return false
+    }
+    return true
+  }
+
   // ── 3. Guardar: rellenar el PDF real ──
   async function handleGuardar() {
+    if (!validar()) return
     setGuardando(true)
     try {
       const pdfDoc = await PDFDocument.load(pdfBytes.slice(0))
@@ -360,7 +475,7 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
         for (const campo of apariciones) {
           const page = pages[campo.page]
           const { rect } = campo
-          const maxW = rect.width - 6, maxH = rect.height - 6
+          const maxW = rect.width - 2, maxH = rect.height - 2
           const scale = Math.min(maxW / img.width, maxH / img.height)
           const w = img.width * scale, h = img.height * scale
           const x = rect.x + (rect.width - w) / 2
@@ -425,6 +540,18 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
           )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          {hayFirmas && (
+            <button
+              onClick={firmarTodo}
+              disabled={cargando || guardando || !!error}
+              className="btn-secondary text-sm py-1.5"
+              title="Coloca tu firma guardada en todas las hojas"
+            >
+              <PenLine className="w-4 h-4" />
+              <span className="hidden sm:inline">Firmar todo</span>
+              <span className="sm:hidden">Firmar</span>
+            </button>
+          )}
           <button onClick={onCancel} className="btn-secondary text-sm py-1.5">
             <X className="w-4 h-4" />
             Cerrar
@@ -516,6 +643,9 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
               {campos
                 .filter((c) => c.page === index)
                 .map((campo, i) => {
+                  // Nada del lado de la empresa/empleador se completa desde
+                  // la app (firma o texto): no se muestra.
+                  if (campo.esEmpleador) return null
                   const s = viewport.scale
                   const cssTop = viewport.height - (campo.rect.y + campo.rect.height) * s
                   const cssLeft = campo.rect.x * s
@@ -577,19 +707,34 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
                   }
 
                   // texto
+                  // Placeholder SOLO en los campos "localidad" y "fecha"
+                  // (Nota fuera de convenio). En el resto no se muestra.
+                  const placeholder =
+                    campo.name === 'localidad' ? 'Localidad'
+                    : campo.name === 'fecha' ? 'Fecha'
+                    : undefined
                   return (
                     <input
                       key={key}
                       type="text"
+                      inputMode={campo.soloNumeros ? 'numeric' : 'text'}
+                      maxLength={campo.maxLen}
+                      placeholder={placeholder}
                       value={valores[campo.name] ?? ''}
-                      onChange={(e) => setValor(campo.name, e.target.value)}
+                      onChange={(e) => {
+                        let v = e.target.value
+                        if (campo.soloNumeros) v = v.replace(/\D/g, '') // solo números
+                        if (campo.maxLen) v = v.slice(0, campo.maxLen)
+                        setValor(campo.name, v)
+                      }}
+                      title={campo.esCbu ? 'CBU: 22 números' : undefined}
                       style={{
                         top: cssTop, left: cssLeft, width: cssWidth, height: cssHeight,
                         fontSize: Math.max(10, cssHeight * 0.55),
                       }}
                       className="absolute bg-brand-50/40 hover:bg-brand-50/70 focus:bg-white
                                  border border-brand-300 focus:border-brand-500 rounded-sm
-                                 px-1 outline-none text-ink"
+                                 px-1 outline-none text-ink placeholder:text-slate-400 placeholder:text-[10px]"
                     />
                   )
                 })}

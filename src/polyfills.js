@@ -31,3 +31,38 @@ if (typeof Promise.withResolvers !== 'function') {
     return { promise, resolve, reject }
   }
 }
+
+/**
+ * ── ReadableStream: iteración asíncrona (Symbol.asyncIterator) ──
+ * CONFIRMADO como la causa real del error en mobile ("undefined is not
+ * a function (near '...n of e...')" al completar documentos).
+ *
+ * `pdfjs-dist` usa internamente `for await (const chunk of stream)`
+ * sobre un ReadableStream dentro de `getTextContent()`. El navegador
+ * puede tener la clase `ReadableStream` pero sin el método de iteración
+ * asíncrona (`Symbol.asyncIterator`) implementado — son dos cosas que
+ * llegaron a los navegadores en momentos distintos. Sin este método,
+ * `for await...of` sobre el stream explota exactamente con ese error.
+ *
+ * Lo reproduje de punta a punta: mismo PDF real, mismo build de
+ * pdfjs-dist que corre en producción, mismo motor JavaScriptCore
+ * (el de Safari/iOS) — y este polyfill lo resuelve.
+ *
+ * Es el shim estándar (spec-compliant) para esto: delega en
+ * `getReader()`, que sí es un método más viejo y ampliamente soportado.
+ */
+if (typeof ReadableStream !== 'undefined' && !ReadableStream.prototype[Symbol.asyncIterator]) {
+  ReadableStream.prototype[Symbol.asyncIterator] = function () {
+    const reader = this.getReader()
+    return {
+      next: () => reader.read(),
+      return: (value) => {
+        reader.releaseLock()
+        return Promise.resolve({ value, done: true })
+      },
+      [Symbol.asyncIterator]() {
+        return this
+      },
+    }
+  }
+}

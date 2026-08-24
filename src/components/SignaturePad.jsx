@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Eraser, Check } from 'lucide-react'
 import Modal from './Modal'
 
@@ -6,10 +6,17 @@ import Modal from './Modal'
  * Modal de firma manuscrita. Dibujá con el mouse o el dedo sobre el
  * lienzo; al confirmar, devuelve un PNG con fondo transparente
  * (`onConfirm(dataUrl)`) listo para estamparlo sobre el PDF.
+ *
+ * FIX: se migró de onTouchStart/Move/End + onMouseDown/Move/Up a Pointer
+ * Events (onPointerDown/Move/Up), que unifican mouse, touch y stylus en
+ * un solo flujo y funcionan correctamente en mobile sin el bug de closure
+ * stale que causaba "undefined is not a function" al intentar leer
+ * ultimoPunto.current cuando dibujando era false por el estado React.
  */
 export default function SignaturePad({ onConfirm, onClose }) {
   const canvasRef = useRef(null)
-  const [dibujando, setDibujando] = useState(false)
+  // Usar ref en lugar de estado para evitar closures stale en los handlers
+  const dibujandoRef = useRef(false)
   const [tieneTrazo, setTieneTrazo] = useState(false)
   const ultimoPunto = useRef(null)
 
@@ -20,17 +27,12 @@ export default function SignaturePad({ onConfirm, onClose }) {
     function preparar() {
       if (cancelado) return
       const canvas = canvasRef.current
-      // Con el Modal (portal + animación de entrada) el <canvas> puede no
-      // estar montado todavía cuando corre este efecto: reintentamos en el
-      // próximo frame en vez de romper con getContext de null.
       if (!canvas) {
         rafId = requestAnimationFrame(preparar)
         return
       }
 
       const { width, height } = canvas.getBoundingClientRect()
-      // Si el layout aún no asentó (medida en cero), reintentar: dejar el
-      // buffer en 0x0 haría que los trazos no se guarden en ningún lado.
       if (width === 0 || height === 0) {
         rafId = requestAnimationFrame(preparar)
         return
@@ -57,23 +59,28 @@ export default function SignaturePad({ onConfirm, onClose }) {
   function posicionDesdeEvento(e) {
     const canvas = canvasRef.current
     const rect = canvas.getBoundingClientRect()
-    const punto = e.touches?.[0] ?? e
     return {
-      x: punto.clientX - rect.left,
-      y: punto.clientY - rect.top,
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
     }
   }
 
   function empezar(e) {
     e.preventDefault()
-    setDibujando(true)
+    // setPointerCapture garantiza que los eventos siguientes lleguen a este
+    // elemento aunque el dedo se salga del canvas (clave en mobile)
+    canvasRef.current?.setPointerCapture(e.pointerId)
+    dibujandoRef.current = true
     ultimoPunto.current = posicionDesdeEvento(e)
   }
 
   function mover(e) {
-    if (!dibujando) return
+    // Leer la ref en vez del estado: no hay closure stale
+    if (!dibujandoRef.current) return
     e.preventDefault()
-    const ctx = canvasRef.current.getContext('2d')
+    const canvas = canvasRef.current
+    if (!canvas || !ultimoPunto.current) return
+    const ctx = canvas.getContext('2d')
     const actual = posicionDesdeEvento(e)
     ctx.beginPath()
     ctx.moveTo(ultimoPunto.current.x, ultimoPunto.current.y)
@@ -84,20 +91,18 @@ export default function SignaturePad({ onConfirm, onClose }) {
   }
 
   function terminar() {
-    setDibujando(false)
+    dibujandoRef.current = false
   }
 
   function limpiar() {
     const canvas = canvasRef.current
+    if (!canvas) return
     const ctx = canvas.getContext('2d')
     const ratio = window.devicePixelRatio || 1
     ctx.clearRect(0, 0, canvas.width / ratio, canvas.height / ratio)
     setTieneTrazo(false)
   }
 
-  // Recorta el lienzo al área realmente dibujada (saca todo el espacio
-  // transparente de alrededor). Así, al estamparla en el PDF, la firma
-  // ocupa bien el campo en vez de quedar diminuta en el medio.
   function recortarAlTrazo(canvas) {
     try {
       const ctx = canvas.getContext('2d')
@@ -146,14 +151,13 @@ export default function SignaturePad({ onConfirm, onClose }) {
         <div className="relative border-2 border-dashed border-slate-300 rounded-xl bg-white overflow-hidden">
           <canvas
             ref={canvasRef}
-            className="w-full h-56 touch-none cursor-crosshair"
-            onMouseDown={empezar}
-            onMouseMove={mover}
-            onMouseUp={terminar}
-            onMouseLeave={terminar}
-            onTouchStart={empezar}
-            onTouchMove={mover}
-            onTouchEnd={terminar}
+            className="w-full h-56 cursor-crosshair"
+            style={{ touchAction: 'none' }}
+            onPointerDown={empezar}
+            onPointerMove={mover}
+            onPointerUp={terminar}
+            onPointerLeave={terminar}
+            onPointerCancel={terminar}
           />
           {!tieneTrazo && (
             <p className="absolute inset-0 flex items-center justify-center text-slate-300 text-sm pointer-events-none">

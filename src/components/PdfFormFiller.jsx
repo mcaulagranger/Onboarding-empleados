@@ -234,7 +234,19 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
         // pantalla se calcula aparte (depende del ancho y del zoom), así
         // podemos re-escalar sin volver a descargar el PDF.
         etapa = 'abrir el documento (pdfjs-dist)'
-        const doc = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise
+        const doc = await pdfjsLib.getDocument({
+          data: bytes.slice(0),
+          // Sin esto, pdfjs no tiene las métricas de las fuentes estándar
+          // (Helvetica, etc.) cuando el PDF no las embebe, y tiene que usar
+          // un camino de repliegue interno. Ese camino es tolerado por
+          // Chrome/V8 pero puede fallar en Safari/JavaScriptCore (mobile)
+          // con errores como "undefined is not a function" al leer el
+          // texto de la página. Estos archivos vienen incluidos en el
+          // paquete pdfjs-dist y se sirven como estáticos desde /public.
+          standardFontDataUrl: '/standard_fonts/',
+          cMapUrl: '/cmaps/',
+          cMapPacked: true,
+        }).promise
         if (cancelado) return
         const base = []
         const textosPorPagina = {}

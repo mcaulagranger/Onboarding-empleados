@@ -9,9 +9,13 @@ import { armarDiagnostico, copiarTexto } from '../lib/diagnostics'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker
 
-// Detección de campos que deben ser numéricos, por su etiqueta de texto.
+// Solo el CBU se restringe a números (22 dígitos). El resto de los
+// campos acepta cualquier tipo de dato: la restricción general por
+// etiqueta ("DNI", "teléfono", "código postal", etc.) se sacó porque
+// generaba falsos positivos en campos que en realidad eran de texto
+// (ej. el nombre del empleado, que comparte renglón con "DNI Nº" en el
+// Acuerdo de Confidencialidad y terminaba bloqueado por error).
 const RE_CBU = /\bcbu\b/i
-const RE_NUMERICO = /cbu|cuit|cuil|\bdni\b|tel[eé]fono|c[oó]digo\s*postal|n[uú]mero de cuenta/i
 
 // La etiqueta de un campo = el texto de la misma línea, a su izquierda.
 function etiquetaDeCampo(rect, itemsPagina) {
@@ -296,10 +300,22 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
           if (/empleador|empresa|granger|supervisor|jefe|gerente|patronal/i.test(campo.name)) {
             campo.esEmpleador = true
           }
+
           const et = etiquetaDeCampo(campo.rect, textosPorPagina[campo.page])
-          campo.etiqueta = et
           if (RE_CBU.test(et)) { campo.soloNumeros = true; campo.esCbu = true; campo.maxLen = 22 }
-          else if (RE_NUMERICO.test(et)) { campo.soloNumeros = true }
+        }
+
+        // Consolidar el CBU por NOMBRE de campo: si tuviera más de una
+        // aparición (no es el caso hoy, pero por las dudas), que las
+        // apariciones sean consistentes entre sí.
+        const cbuPorNombre = new Set()
+        for (const c of extraidos) if (c.esCbu) cbuPorNombre.add(c.name)
+        for (const c of extraidos) {
+          if (c.tipo !== 'texto') continue
+          const esCbu = cbuPorNombre.has(c.name)
+          c.soloNumeros = esCbu
+          c.esCbu = esCbu
+          c.maxLen = esCbu ? 22 : undefined
         }
 
         if (!cancelado) {

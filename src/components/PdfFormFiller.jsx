@@ -430,6 +430,17 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
     return true
   }
 
+  // Convierte una data URL (data:image/png;base64,...) a ArrayBuffer sin
+  // usar fetch(), que en iOS Safari y algunos Android Chrome no soporta
+  // URLs data: y lanza "undefined is not a function" o un error de red.
+  function dataUrlToBytes(dataUrl) {
+    const base64 = dataUrl.split(',')[1]
+    const binStr = atob(base64)
+    const bytes = new Uint8Array(binStr.length)
+    for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i)
+    return bytes.buffer
+  }
+
   // ── 3. Guardar: rellenar el PDF real ──
   async function handleGuardar() {
     if (!validar()) return
@@ -467,8 +478,7 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
         const apariciones = campos.filter((c) => c.name === nombre)
         if (!apariciones.length) continue
 
-        const resp = await fetch(dataUrl)
-        const pngBytes = await resp.arrayBuffer()
+        const pngBytes = dataUrlToBytes(dataUrl)
         if (!pngBytes || pngBytes.byteLength < 100) continue
 
         const img = await pdfDoc.embedPng(pngBytes)
@@ -497,8 +507,7 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
         if (!canvas) continue
 
         const dataUrl = canvas.toDataURL('image/png')
-        const resp = await fetch(dataUrl)
-        const pngBytes = await resp.arrayBuffer()
+        const pngBytes = dataUrlToBytes(dataUrl)
         if (!pngBytes || pngBytes.byteLength < 100) continue
 
         const img = await pdfDoc.embedPng(pngBytes)

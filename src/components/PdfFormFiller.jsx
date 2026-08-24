@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { PDFDocument, PDFCheckBox, PDFRadioGroup } from 'pdf-lib'
-import { Send, PenLine, X, Trash2, Check, ZoomIn, ZoomOut } from 'lucide-react'
+import { Send, PenLine, X, Trash2, Check, ZoomIn, ZoomOut, Copy } from 'lucide-react'
 import { toast } from 'react-toastify'
 import CroquisCanvas from './CroquisCanvas'
+import { armarDiagnostico, copiarTexto } from '../lib/diagnostics'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker
 
@@ -72,6 +73,8 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
   const [croquisTocados, setCroquisTocados] = useState({}) // { name: true }
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState(null)
+  const [errorDetalle, setErrorDetalle] = useState(null) // { err, etapa } para diagnóstico
+  const [copiado, setCopiado] = useState(false)
   const [guardando, setGuardando] = useState(false)
   const [zoom, setZoom] = useState(1)       // multiplicador sobre el "ajustar al ancho"
   const [pdfListo, setPdfListo] = useState(false)
@@ -109,13 +112,17 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
     async function cargar() {
       setCargando(true)
       setError(null)
+      setErrorDetalle(null)
+      let etapa = 'inicio'
       try {
+        etapa = 'descargar el PDF (fetch)'
         const res = await fetch(fileUrl)
-        if (!res.ok) throw new Error('No se pudo descargar el documento')
+        if (!res.ok) throw new Error(`No se pudo descargar el documento (HTTP ${res.status})`)
         const bytes = await res.arrayBuffer()
         if (cancelado) return
         setPdfBytes(bytes)
 
+        etapa = 'leer el formulario (pdf-lib)'
         // ── Estructura del formulario (pdf-lib) ──
         const pdfDoc = await PDFDocument.load(bytes)
         const pdfPages = pdfDoc.getPages()
@@ -226,11 +233,13 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
         // Guardamos las páginas y su viewport natural; el tamaño real en
         // pantalla se calcula aparte (depende del ancho y del zoom), así
         // podemos re-escalar sin volver a descargar el PDF.
+        etapa = 'abrir el documento (pdfjs-dist)'
         const doc = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise
         if (cancelado) return
         const base = []
         const textosPorPagina = {}
         for (let i = 1; i <= doc.numPages; i++) {
+          etapa = `leer la página ${i} de ${doc.numPages} (pdfjs-dist)`
           const page = await doc.getPage(i)
           base.push({ page, natural: page.getViewport({ scale: 1 }), index: i - 1 })
           const tc = await page.getTextContent()
@@ -290,6 +299,7 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
       } catch (err) {
         if (!cancelado) {
           setError(err.message ?? 'Error al cargar el documento')
+          setErrorDetalle({ err, etapa })
           setCargando(false)
         }
       }
@@ -323,17 +333,23 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
     paginasInfo.forEach(({ page, viewport, index }) => {
       const canvas = canvasRefs.current[index]
       if (!canvas || canvas.dataset.pintado) return
-      canvas.width = Math.round(viewport.width * dpr)
-      canvas.height = Math.round(viewport.height * dpr)
-      // Tamaño de DISPLAY = tamaño de la página (el buffer va a mayor
-      // resolución para nitidez, pero se muestra al tamaño real para que
-      // los campos queden alineados).
-      canvas.style.width = `${viewport.width}px`
-      canvas.style.height = `${viewport.height}px`
-      const ctx = canvas.getContext('2d')
-      const rv = page.getViewport({ scale: viewport.scale * dpr })
-      page.render({ canvasContext: ctx, viewport: rv })
-      canvas.dataset.pintado = '1'
+      try {
+        canvas.width = Math.round(viewport.width * dpr)
+        canvas.height = Math.round(viewport.height * dpr)
+        // Tamaño de DISPLAY = tamaño de la página (el buffer va a mayor
+        // resolución para nitidez, pero se muestra al tamaño real para que
+        // los campos queden alineados).
+        canvas.style.width = `${viewport.width}px`
+        canvas.style.height = `${viewport.height}px`
+        const ctx = canvas.getContext('2d')
+        const rv = page.getViewport({ scale: viewport.scale * dpr })
+        page.render({ canvasContext: ctx, viewport: rv })
+        canvas.dataset.pintado = '1'
+      } catch (err) {
+        console.error(`[PdfFormFiller] Error al dibujar la página ${index + 1}:`, err)
+        setError(`No se pudo dibujar la página ${index + 1}`)
+        setErrorDetalle({ err, etapa: `dibujar la página ${index + 1} en <canvas> (pdfjs-dist)` })
+      }
     })
   }, [paginasInfo])
 
@@ -531,6 +547,7 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
     } catch (err) {
       console.error('[PdfFormFiller] Error al guardar:', err)
       setError(err.message ?? 'No se pudo generar el documento completado')
+      setErrorDetalle({ err, etapa: 'guardar y enviar el documento completado' })
     } finally {
       setGuardando(false)
     }
@@ -589,9 +606,45 @@ export default function PdfFormFiller({ fileUrl, onSubmit, onCancel, titulo, sav
         )}
 
         {error && (
-          <div className="max-w-md mx-auto card p-6 text-center">
+          <div className="max-w-md mx-auto card p-6 text-center space-y-3">
             <p className="text-red-600 text-sm font-medium">{error}</p>
-            <button onClick={onCancel} className="btn-secondary mt-4 mx-auto">Cerrar</button>
+            {errorDetalle?.etapa && (
+              <p className="text-xs text-slate-400">Ocurrió al: {errorDetalle.etapa}</p>
+            )}
+
+            {errorDetalle?.err && (
+              <details className="text-left bg-slate-50 rounded-lg p-3">
+                <summary className="cursor-pointer text-xs font-medium text-slate-500 select-none">
+                  Detalle técnico
+                </summary>
+                <pre className="mt-2 text-[11px] whitespace-pre-wrap break-words text-slate-600 max-h-40 overflow-y-auto">
+{errorDetalle.err.name}: {errorDetalle.err.message}
+{'\n'}
+{errorDetalle.err.stack}
+                </pre>
+              </details>
+            )}
+
+            <div className="flex gap-2 justify-center">
+              {errorDetalle?.err && (
+                <button
+                  onClick={async () => {
+                    const texto = armarDiagnostico(errorDetalle.err, {
+                      Etapa: errorDetalle.etapa,
+                      Documento: titulo,
+                    })
+                    const ok = await copiarTexto(texto)
+                    setCopiado(ok)
+                    setTimeout(() => setCopiado(false), 2000)
+                  }}
+                  className="btn-secondary text-sm"
+                >
+                  <Copy className="w-4 h-4" />
+                  {copiado ? 'Copiado ✓' : 'Copiar diagnóstico'}
+                </button>
+              )}
+              <button onClick={onCancel} className="btn-secondary text-sm">Cerrar</button>
+            </div>
           </div>
         )}
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../contexts/AuthContext'
 import { Eye, EyeOff, ArrowRight, ShieldCheck } from 'lucide-react'
 
 /**
@@ -14,6 +15,7 @@ import { Eye, EyeOff, ArrowRight, ShieldCheck } from 'lucide-react'
  */
 export default function SetPassword() {
   const navigate = useNavigate()
+  const { fetchProfile } = useAuth()
   const [listo, setListo] = useState(false)      // ¿hay sesión válida del link?
   const [sinSesion, setSinSesion] = useState(false)
   const [password, setPassword] = useState('')
@@ -58,8 +60,26 @@ export default function SetPassword() {
     }
     setGuardando(true)
     try {
-      const { error } = await supabase.auth.updateUser({ password })
+      const { data: sesion, error } = await supabase.auth.updateUser({ password })
       if (error) throw error
+
+      // Marcamos que esta persona YA definió su propia clave. Es lo que
+      // usa el resto de la app para exigir este paso antes que nada, sin
+      // depender únicamente de que el link de invitación la haya
+      // traído hasta acá (por si la redirección falla en algún caso).
+      const uid = sesion?.user?.id
+      if (uid) {
+        const { error: ePerfil } = await supabase
+          .from('profiles')
+          .update({ password_set: true })
+          .eq('id', uid)
+        if (ePerfil) console.error('No se pudo marcar password_set:', ePerfil.message)
+        // Refrescamos el perfil en memoria ANTES de navegar: si no, la app
+        // todavía vería password_set en false (el valor con el que se
+        // cargó esta pantalla) y nos mandaría de nuevo para acá en loop.
+        await fetchProfile(uid)
+      }
+
       navigate('/')
     } catch (err) {
       setError(err.message ?? 'No se pudo guardar la contraseña.')

@@ -38,6 +38,15 @@ function ProtectedRoute({ children, roles }) {
     return <Navigate to="/login" replace />
   }
 
+  // El empleado tiene sesión (por el link de invitación) pero todavía no
+  // definió su propia clave: lo mandamos a hacerlo ANTES que nada, sin
+  // importar a qué pantalla haya intentado entrar. Esto no depende de que
+  // el redirect del mail de invitación esté perfecto — la propia app lo
+  // exige igual.
+  if (profile?.role === 'employee' && profile?.password_set === false) {
+    return <Navigate to="/establecer-clave" replace />
+  }
+
   if (roles && !roles.includes(profile?.role)) {
     return <Navigate to={profile?.role === 'employee' ? '/empleado' : '/admin'} replace />
   }
@@ -48,6 +57,9 @@ function RootRedirect() {
   const { user, profile, loading } = useAuth()
   if (loading) return null
   if (!user) return <Navigate to="/login" replace />
+  if (profile?.role === 'employee' && profile?.password_set === false) {
+    return <Navigate to="/establecer-clave" replace />
+  }
   return <Navigate to={profile?.role === 'employee' ? '/empleado' : '/admin'} replace />
 }
 

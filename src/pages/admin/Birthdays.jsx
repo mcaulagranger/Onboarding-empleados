@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { toast } from 'react-toastify'
 import Modal from '../../components/Modal'
 import { edadQueCumple, proximoCumpleanos, formatoCorto, parseFechaLocal } from '../../lib/dateUtils'
+import { subirImagenCloudinary } from '../../lib/cloudinary'
 import {
   PlusCircle, Pencil, Trash2, Cake, Camera, Search, Mail, Briefcase,
 } from 'lucide-react'
@@ -32,8 +33,11 @@ export default function Birthdays() {
       .order('last_name', { ascending: true })
     if (error) toast.error('No se pudo cargar el listado')
     else {
-      // URLs firmadas para las fotos que tengan photo_path
+      // Si ya tiene photo_url (Cloudinary), esa URL es pública y se usa
+      // directo. Si es una foto vieja (solo photo_path, de Supabase
+      // Storage), se genera una URL firmada como antes.
       const conFotos = await Promise.all((data ?? []).map(async (b) => {
+        if (b.photo_url) return { ...b, photoUrl: b.photo_url }
         if (!b.photo_path) return { ...b, photoUrl: null }
         const { data: signed } = await supabase.storage
           .from('birthday-photos')
@@ -69,22 +73,16 @@ export default function Birthdays() {
     e.preventDefault()
     setSaving(true)
     try {
-      let photo_path = editando?.photo_path ?? null
+      // Las fotos NUEVAS van a Cloudinary (ahí es donde ya tenés el resto
+      // de las imágenes). Las viejas subidas a Supabase Storage
+      // (photo_path) se dejan como están, no se tocan ni se borran.
+      let photo_url = editando?.photo_url ?? null
 
       if (file) {
-        const path = `${Date.now()}_${file.name.replace(/\s+/g, '_')}`
-        const { error: upErr } = await supabase.storage
-          .from('birthday-photos')
-          .upload(path, file, { upsert: false })
-        if (upErr) throw upErr
-        // si reemplaza una foto anterior, la vieja se borra
-        if (editando?.photo_path) {
-          await supabase.storage.from('birthday-photos').remove([editando.photo_path])
-        }
-        photo_path = path
+        photo_url = await subirImagenCloudinary(file)
       }
 
-      const payload = { ...form, photo_path }
+      const payload = { ...form, photo_url }
 
       if (editando) {
         const { error } = await supabase.from('birthdays').update(payload).eq('id', editando.id)

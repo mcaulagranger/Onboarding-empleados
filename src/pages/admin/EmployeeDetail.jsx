@@ -11,7 +11,7 @@ import { SkeletonRow } from '../../components/Skeleton'
 import { TabGroup, TabList, Tab, TabPanels, TabPanel } from '@headlessui/react'
 import {
   ArrowLeft, Plus, Download, Trash2, UserCircle, Mail, Phone,
-  Calendar, Briefcase, FileText, CheckCircle2, Send, BellRing, PenLine
+  Calendar, Briefcase, FileText, CheckCircle2, Send, BellRing, PenLine, UploadCloud
 } from 'lucide-react'
 
 // Fila de dato (label + valor) para la pestaña de datos personales.
@@ -30,6 +30,7 @@ export default function EmployeeDetail() {
   const [employee, setEmployee] = useState(null)
   const [docs, setDocs] = useState([])
   const [datos, setDatos] = useState(null)
+  const [subidos, setSubidos] = useState([])
   const [templates, setTemplates] = useState([])
   const [selected, setSelected] = useState([])
   const [showAssign, setShowAssign] = useState(false)
@@ -39,7 +40,7 @@ export default function EmployeeDetail() {
   const [remindingId, setRemindingId] = useState(null)
 
   async function loadData() {
-    const [empRes, docsRes, tplRes, datosRes] = await Promise.all([
+    const [empRes, docsRes, tplRes, datosRes, subidosRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', id).single(),
       supabase
         .from('employee_documents')
@@ -48,11 +49,13 @@ export default function EmployeeDetail() {
         .order('created_at', { ascending: false }),
       supabase.from('document_templates').select('*').eq('is_active', true),
       supabase.from('datos_personales').select('*').eq('employee_id', id).maybeSingle(),
+      supabase.from('employee_uploads').select('*').eq('employee_id', id).order('uploaded_at', { ascending: false }),
     ])
     setEmployee(empRes.data)
     setDocs(docsRes.data ?? [])
     setTemplates(tplRes.data ?? [])
     setDatos(datosRes.data ?? null)
+    setSubidos(subidosRes.data ?? [])
     setLoading(false)
   }
 
@@ -158,6 +161,23 @@ export default function EmployeeDetail() {
       const a = document.createElement('a')
       a.href = url
       a.download = fileName || 'documento.pdf'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('No se pudo descargar el archivo')
+    }
+  }
+
+  async function handleDescargarSubido(doc) {
+    try {
+      const { data, error } = await supabase.storage
+        .from('employee-uploads')
+        .download(doc.file_path)
+      if (error) throw error
+      const url = URL.createObjectURL(data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${doc.nombre}.pdf`
       a.click()
       URL.revokeObjectURL(url)
     } catch {
@@ -287,7 +307,7 @@ export default function EmployeeDetail() {
         <div className="lg:col-span-2">
           <TabGroup>
             <TabList className="flex gap-1 border-b border-slate-200 mb-4">
-              {['Documentos', 'Datos personales', 'Firma'].map((t) => (
+              {['Documentos', 'Datos personales', 'Firma', 'Subidos por el empleado'].map((t) => (
                 <Tab
                   key={t}
                   className={({ selected }) =>
@@ -479,6 +499,44 @@ export default function EmployeeDetail() {
                     />
                   )}
                 </div>
+              </TabPanel>
+
+              {/* Pestaña: Subidos por el empleado (certificados externos) */}
+              <TabPanel className="focus:outline-none">
+                {subidos.length === 0 ? (
+                  <div className="card">
+                    <EmptyState
+                      icon={UploadCloud}
+                      title="Sin documentos subidos"
+                      description="El empleado todavía no subió certificados u otros documentos propios."
+                    />
+                  </div>
+                ) : (
+                  <ul className="card divide-y divide-slate-100 overflow-hidden">
+                    {subidos.map((doc) => (
+                      <li key={doc.id} className="flex items-center gap-3 px-5 py-3.5">
+                        <div className="w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center flex-shrink-0">
+                          <FileText className="w-4 h-4 text-brand-600" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-ink truncate">{doc.nombre}</p>
+                          <p className="text-xs text-slate-500">
+                            {new Date(doc.uploaded_at).toLocaleDateString('es-AR')}
+                          </p>
+                        </div>
+                        <Tooltip label="Descargar">
+                          <button
+                            onClick={() => handleDescargarSubido(doc)}
+                            className="p-1.5 rounded text-slate-400 hover:text-brand-700 hover:bg-brand-100 transition-colors"
+                            aria-label="Descargar"
+                          >
+                            <Download className="w-4 h-4" />
+                          </button>
+                        </Tooltip>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </TabPanel>
             </TabPanels>
           </TabGroup>

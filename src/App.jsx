@@ -13,6 +13,7 @@ import Birthdays from './pages/admin/Birthdays'
 import RRHHTeam from './pages/admin/RRHHTeam'
 import EmployeeDashboard from './pages/employee/Dashboard'
 import MyDocuments from './pages/employee/MyDocuments'
+import MyUploads from './pages/employee/MyUploads'
 
 // `roles`: lista de roles permitidos en esta rama de rutas.
 // admin y rrhh comparten todo el panel operativo; el panel
@@ -38,15 +39,6 @@ function ProtectedRoute({ children, roles }) {
     return <Navigate to="/login" replace />
   }
 
-  // El empleado tiene sesión (por el link de invitación) pero todavía no
-  // definió su propia clave: lo mandamos a hacerlo ANTES que nada, sin
-  // importar a qué pantalla haya intentado entrar. Esto no depende de que
-  // el redirect del mail de invitación esté perfecto — la propia app lo
-  // exige igual.
-  if (profile?.role === 'employee' && profile?.password_set === false) {
-    return <Navigate to="/establecer-clave" replace />
-  }
-
   if (roles && !roles.includes(profile?.role)) {
     return <Navigate to={profile?.role === 'employee' ? '/empleado' : '/admin'} replace />
   }
@@ -57,9 +49,6 @@ function RootRedirect() {
   const { user, profile, loading } = useAuth()
   if (loading) return null
   if (!user) return <Navigate to="/login" replace />
-  if (profile?.role === 'employee' && profile?.password_set === false) {
-    return <Navigate to="/establecer-clave" replace />
-  }
   return <Navigate to={profile?.role === 'employee' ? '/empleado' : '/admin'} replace />
 }
 
@@ -106,6 +95,7 @@ export default function App() {
         >
           <Route index element={<EmployeeDashboard />} />
           <Route path="documentos" element={<MyDocuments />} />
+          <Route path="cargar-documentos" element={<MyUploads />} />
         </Route>
 
         <Route path="/" element={<RootRedirect />} />

@@ -1,12 +1,13 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
-  LayoutDashboard, Users, FileText, LogOut, ClipboardList, X, Cake, ShieldCheck,
+  LayoutDashboard, Users, FileText, LogOut, ClipboardList, X, Cake, ShieldCheck, UploadCloud,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
 const employeeNav = [
   { to: '/empleado', label: 'Inicio', icon: LayoutDashboard, end: true },
   { to: '/empleado/documentos', label: 'Mis documentos', icon: ClipboardList },
+  { to: '/empleado/cargar-documentos', label: 'Cargar documentos', icon: UploadCloud },
 ]
 
 export default function Sidebar({ onClose }) {
